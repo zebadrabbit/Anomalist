@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
-  import type { Widget, WidgetUpdate } from "@anomalist/types";
+  import type { Widget } from "@anomalist/types";
+  import { SocketEvents } from "@anomalist/types";
+  import type { Socket } from "socket.io-client";
 
   export let widget: Widget;
-
-  const dispatch = createEventDispatcher<{ update: WidgetUpdate }>();
+  export let socket: Socket | null;
   const debouncers = new Map<string, (value: unknown) => void>();
 
   function debounce(fn: (...args: any[]) => void, ms: number) {
@@ -27,7 +27,7 @@
   }
 
   const emitImmediate = debounce((updates: Record<string, unknown>) => {
-    dispatch("update", {
+    socket?.emit(SocketEvents.WIDGET_UPDATE, {
       id: widget.id,
       props: updates
     });
@@ -37,7 +37,7 @@
     let debounced = debouncers.get(key);
     if (!debounced) {
       debounced = debounce((nextValue: unknown) => {
-        dispatch("update", {
+        socket?.emit(SocketEvents.WIDGET_UPDATE, {
           id: widget.id,
           props: {
             [key]: nextValue

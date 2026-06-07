@@ -73,7 +73,7 @@
 </script>
 
 <div
-  style={`position:absolute;left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${color};font-variant-numeric:tabular-nums;`}
+  style={`width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${color};font-variant-numeric:tabular-nums;`}
 >
   {formatTime(currentSeconds)}
 </div>

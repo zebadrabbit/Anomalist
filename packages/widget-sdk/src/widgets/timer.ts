@@ -4,6 +4,7 @@ export const timerWidgetDefinition: WidgetDefinition = {
   id: "timer",
   name: "Timer",
   defaultProps: {
+    rotation: 0,
     mode: "stopwatch",
     durationSeconds: 60,
     running: false,

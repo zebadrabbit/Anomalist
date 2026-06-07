@@ -55,15 +55,16 @@
 <main class="overlay-canvas">
   {#each widgets as widget (widget.id)}
     {@const WidgetComponent = resolveComponent(widget.type)}
-    {#if WidgetComponent}
-      <svelte:component this={WidgetComponent} {widget} />
-    {:else}
-      <div
-        style={`position:absolute;left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;color:#ffffff;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,0.65);`}
-      >
-        {widget.type}
-      </div>
-    {/if}
+    <div
+      class="widget-frame"
+      style={`left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;transform: rotate(${widget.rotation ?? 0}deg);`}
+    >
+      {#if WidgetComponent}
+        <svelte:component this={WidgetComponent} {widget} />
+      {:else}
+        <div class="widget-fallback">{widget.type}</div>
+      {/if}
+    </div>
   {/each}
 </main>
 
@@ -81,6 +82,22 @@
     height: 100vh;
     background: transparent;
     overflow: hidden;
+  }
+
+  .widget-frame {
+    position: absolute;
+    transform-origin: center center;
+  }
+
+  .widget-fallback {
+    width: 100%;
+    height: 100%;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed rgba(255, 255, 255, 0.65);
+    box-sizing: border-box;
   }
 
 </style>

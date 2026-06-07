@@ -18,7 +18,7 @@
 </script>
 
 <div
-  style={`position:absolute;left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:${color};`}
+  style={`width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:${color};`}
 >
   {#if label}
     <div style={`font-size:${Math.max(12, Math.floor(fontSize * 0.5))}px;line-height:1.2;opacity:0.9;`}>{label}</div>

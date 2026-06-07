@@ -2,8 +2,9 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, Widget, WidgetUpdate } from "@anomalist/types";
+  import type { CanvasState, Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
+  import Canvas from "../lib/Canvas.svelte";
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
@@ -48,13 +49,13 @@
   let token = "";
   let authError = "";
   let isAuthenticated = false;
-  let selectedWidgetId = "";
+  let selectedWidgetId: string | null = null;
 
   $: activeScene = $stagingState?.scenes.find((scene) => scene.id === $stagingState.activeSceneId);
   $: widgets = activeScene?.widgets ?? [];
-  $: selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  $: selectedWidget = selectedWidgetId ? widgets.find((widget) => widget.id === selectedWidgetId) ?? null : null;
   $: if (selectedWidgetId && !widgets.some((widget) => widget.id === selectedWidgetId)) {
-    selectedWidgetId = "";
+    selectedWidgetId = null;
   }
 
   function connectDashboard() {
@@ -69,7 +70,7 @@
     socket.on(SocketEvents.AUTH_ERROR, (message: string) => {
       authError = message;
       isAuthenticated = false;
-      selectedWidgetId = "";
+      selectedWidgetId = null;
       stagingState.set(null);
       socket?.disconnect();
       socket = null;
@@ -94,13 +95,19 @@
       counter: { width: 220, height: 110 }
     };
 
+    // Stagger spawn location so new widgets are not fully stacked.
+    const offset = (widgets.length * 36) % 180;
+    const spawnX = 120 + offset;
+    const spawnY = 320 + offset;
+
     return {
       id: crypto.randomUUID(),
       type,
-      x: 50,
-      y: 50,
+      x: spawnX,
+      y: spawnY,
       width: dimensions[type].width,
       height: dimensions[type].height,
+      rotation: 0,
       visible: true,
       layerId: "layer-1",
       props: {
@@ -120,15 +127,6 @@
     socket.emit(SocketEvents.WIDGET_ADD, widget);
   }
 
-  function updateWidget(event: CustomEvent<WidgetUpdate>) {
-    if (!socket || !isAuthenticated) {
-      return;
-    }
-
-    livePushed = false;
-    socket.emit(SocketEvents.WIDGET_UPDATE, event.detail);
-  }
-
   function removeSelectedWidget() {
     if (!socket || !isAuthenticated || !selectedWidget) {
       return;
@@ -136,7 +134,11 @@
 
     livePushed = false;
     socket.emit(SocketEvents.WIDGET_REMOVE, { id: selectedWidget.id });
-    selectedWidgetId = "";
+    selectedWidgetId = null;
+  }
+
+  function handleCanvasSelect(event: CustomEvent<string | null>) {
+    selectedWidgetId = event.detail;
   }
 
   function pushToLive() {
@@ -169,78 +171,70 @@
     {/if}
   {:else}
     <h1>Anomalist Dashboard</h1>
-    <p>Staging widget count: {widgets.length}</p>
-    <p>
-      Live: <strong>{livePushed ? "Synced" : "Not Synced"}</strong>
-    </p>
-
-    <section class="panel">
-      <h2>Add Widget</h2>
-      <div class="actions">
+    <section class="toolbar panel">
+      <div class="toolbar-top">
+        <h2>Canvas Controls</h2>
+        <p>
+          Staging widget count: <strong>{widgets.length}</strong> | Live:
+          <strong>{livePushed ? "Synced" : "Not Synced"}</strong>
+        </p>
+      </div>
+      <div class="actions toolbar-actions">
         <button type="button" on:click={() => addWidget("text")}>Text</button>
         <button type="button" on:click={() => addWidget("image")}>Image</button>
         <button type="button" on:click={() => addWidget("timer")}>Timer</button>
         <button type="button" on:click={() => addWidget("counter")}>Counter</button>
+        <button type="button" class="push" on:click={pushToLive}>Push to Live</button>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Staging Widgets</h2>
-      {#if widgets.length === 0}
-        <p>No widgets in staging.</p>
-      {:else}
-        <ul class="widget-list">
-          {#each widgets as widget}
-            <li>
-              <button
-                type="button"
-                class:selected={widget.id === selectedWidgetId}
-                on:click={() => (selectedWidgetId = widget.id)}
-              >
-                {widget.type} ({widget.id})
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-
-    <section class="panel">
-      <h2>Settings</h2>
-      {#if selectedWidget}
-        <p>
-          Selected: <strong>{selectedWidget.type}</strong>
-        </p>
-        <div class="actions">
-          <button type="button" class="danger" on:click={removeSelectedWidget}>Remove Widget</button>
-        </div>
-
-        {#if selectedWidget.type === "text"}
-          <TextSettings widget={selectedWidget} on:update={updateWidget} />
-        {:else if selectedWidget.type === "image"}
-          <ImageSettings widget={selectedWidget} on:update={updateWidget} />
-        {:else if selectedWidget.type === "timer"}
-          <TimerSettings widget={selectedWidget} on:update={updateWidget} />
-        {:else if selectedWidget.type === "counter"}
-          <CounterSettings widget={selectedWidget} on:update={updateWidget} />
+    <section class="workspace">
+      <div class="canvas-column panel">
+        {#if $stagingState && socket}
+          <Canvas
+            stagingState={$stagingState}
+            {socket}
+            {selectedWidgetId}
+            on:select={handleCanvasSelect}
+          />
         {:else}
-          <p>No settings panel available for this widget type.</p>
+          <p>Waiting for staging state...</p>
         {/if}
-      {:else}
-        <p>Select a widget from the list to edit its settings.</p>
-      {/if}
-    </section>
+      </div>
 
-    <div class="actions">
-      <button type="button" class="push" on:click={pushToLive}>Push to Live</button>
-    </div>
+      <aside class="sidebar panel">
+        <h2>Settings</h2>
+        {#if selectedWidget}
+          <p>
+            Selected: <strong>{selectedWidget.type}</strong>
+          </p>
+          <div class="actions">
+            <button type="button" class="danger" on:click={removeSelectedWidget}>Remove Widget</button>
+          </div>
+
+          {#if selectedWidget.type === "text"}
+            <TextSettings widget={selectedWidget} {socket} />
+          {:else if selectedWidget.type === "image"}
+            <ImageSettings widget={selectedWidget} {socket} />
+          {:else if selectedWidget.type === "timer"}
+            <TimerSettings widget={selectedWidget} {socket} />
+          {:else if selectedWidget.type === "counter"}
+            <CounterSettings widget={selectedWidget} {socket} />
+          {:else}
+            <p>No settings panel available for this widget type.</p>
+          {/if}
+        {:else}
+          <p>Select a widget to edit its settings.</p>
+        {/if}
+      </aside>
+    </section>
   {/if}
 </main>
 
 <style>
   main {
     font-family: sans-serif;
-    max-width: 1000px;
+    max-width: 1400px;
     margin: 2rem auto;
     padding: 0 1rem;
   }
@@ -251,6 +245,39 @@
     padding: 1rem;
     margin-bottom: 1rem;
     background: #fff;
+  }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .canvas-column {
+    min-height: 620px;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 1rem;
+  }
+
+  .toolbar {
+    margin-bottom: 1rem;
+  }
+
+  .toolbar-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .toolbar-actions {
+    margin-bottom: 0;
   }
 
   .actions {
@@ -274,28 +301,6 @@
     font-weight: 600;
   }
 
-  .widget-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 0.5rem;
-  }
-
-  .widget-list button {
-    width: 100%;
-    text-align: left;
-    padding: 0.6rem;
-    border: 1px solid #cfd4dc;
-    border-radius: 8px;
-    background: #f7f9fc;
-  }
-
-  .widget-list button.selected {
-    border-color: #1f6feb;
-    background: #e8f1ff;
-  }
-
   .danger {
     background: #e5484d;
     color: #fff;
@@ -306,5 +311,15 @@
     background: #1f6feb;
     color: #fff;
     border-color: #1f6feb;
+  }
+
+  @media (max-width: 1100px) {
+    .workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: static;
+    }
   }
 </style>

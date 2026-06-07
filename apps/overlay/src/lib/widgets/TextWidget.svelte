@@ -19,7 +19,7 @@
 </script>
 
 <div
-  style={`position:absolute;left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;font-size:${fontSize}px;color:${color};font-weight:${fontWeight};background:${backgroundColor};display:flex;align-items:center;padding:4px 8px;box-sizing:border-box;`}
+  style={`width:100%;height:100%;font-size:${fontSize}px;color:${color};font-weight:${fontWeight};background:${backgroundColor};display:flex;align-items:center;padding:4px 8px;box-sizing:border-box;`}
 >
   {content}
 </div>

@@ -36,7 +36,7 @@
 </script>
 
 <div
-  style={`position:absolute;left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;opacity:${opacity};border-radius:${borderRadius}px;overflow:hidden;box-sizing:border-box;`}
+  style={`width:100%;height:100%;opacity:${opacity};border-radius:${borderRadius}px;overflow:hidden;box-sizing:border-box;`}
 >
   {#if url}
     <img

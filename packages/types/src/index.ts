@@ -5,6 +5,7 @@ export interface Widget {
   y: number;
   width: number;
   height: number;
+  rotation: number;
   visible: boolean;
   layerId: string;
   props: Record<string, unknown>;
