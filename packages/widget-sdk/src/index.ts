@@ -29,3 +29,5 @@ export function registerWidget(def: WidgetDefinition): void {
 
   console.log(`Registered widget: ${def.id}`);
 }
+
+export * from "./widgets/index.js";

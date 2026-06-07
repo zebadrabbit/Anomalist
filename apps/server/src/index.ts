@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
@@ -9,11 +10,15 @@ import { loadState, saveState } from "./db.js";
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
-const defaultOwnerToken = randomUUID();
-const ownerToken = process.env.OWNER_TOKEN ?? defaultOwnerToken;
+const configuredOwnerToken = process.env.OWNER_TOKEN;
+const ownerToken =
+  configuredOwnerToken && configuredOwnerToken !== "change-me" ? configuredOwnerToken : randomUUID();
 
-if (!process.env.OWNER_TOKEN) {
-  console.log(`OWNER TOKEN: ${ownerToken}`);
+if (!configuredOwnerToken || configuredOwnerToken === "change-me") {
+  console.log(
+    `WARNING: No OWNER_TOKEN set in .env — using temporary token for this session only: ${ownerToken}`
+  );
+  console.log("Set OWNER_TOKEN in apps/server/.env to make it permanent.");
 }
 
 function createDefaultState(): CanvasState {
