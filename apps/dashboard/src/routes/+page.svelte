@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, Widget } from "@anomalist/types";
+  import type { CanvasState, Widget, WidgetUpdate } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
@@ -120,7 +120,7 @@
     socket.emit(SocketEvents.WIDGET_ADD, widget);
   }
 
-  function updateWidget(event: CustomEvent<Widget>) {
+  function updateWidget(event: CustomEvent<WidgetUpdate>) {
     if (!socket || !isAuthenticated) {
       return;
     }

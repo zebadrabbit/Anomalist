@@ -1,10 +1,19 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import type { Widget } from "@anomalist/types";
+  import type { Widget, WidgetUpdate } from "@anomalist/types";
 
   export let widget: Widget;
 
-  const dispatch = createEventDispatcher<{ update: Widget }>();
+  const dispatch = createEventDispatcher<{ update: WidgetUpdate }>();
+  const debouncers = new Map<string, (value: unknown) => void>();
+
+  function debounce(fn: (...args: any[]) => void, ms: number) {
+    let timer: ReturnType<typeof setTimeout>;
+    return (...args: any[]) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
 
   let trackedWidgetId = "";
   let originalDuration = 60;
@@ -17,14 +26,32 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
-  function emitProps(nextProps: Record<string, unknown>) {
+  const emitImmediate = debounce((updates: Record<string, unknown>) => {
     dispatch("update", {
-      ...widget,
-      props: {
-        ...widget.props,
-        ...nextProps
-      }
+      id: widget.id,
+      props: updates
     });
+  }, 0);
+
+  function emitProp(key: string, value: unknown) {
+    let debounced = debouncers.get(key);
+    if (!debounced) {
+      debounced = debounce((nextValue: unknown) => {
+        dispatch("update", {
+          id: widget.id,
+          props: {
+            [key]: nextValue
+          }
+        });
+      }, 150);
+      debouncers.set(key, debounced);
+    }
+
+    debounced(value);
+  }
+
+  function emitPropsImmediate(updates: Record<string, unknown>) {
+    emitImmediate(updates);
   }
 
   $: mode = asString(widget.props.mode, "stopwatch") === "countdown" ? "countdown" : "stopwatch";
@@ -42,7 +69,7 @@
 <section>
   <label>
     Mode
-    <select value={mode} on:change={(event) => emitProps({ mode: event.currentTarget.value, running: false })}>
+    <select value={mode} on:change={(event) => emitProp("mode", event.currentTarget.value)}>
       <option value="stopwatch">Stopwatch</option>
       <option value="countdown">Countdown</option>
     </select>
@@ -55,17 +82,17 @@
         type="number"
         min="0"
         value={durationSeconds}
-        on:input={(event) => emitProps({ durationSeconds: Number(event.currentTarget.value) || 0 })}
+        on:input={(event) => emitProp("durationSeconds", Number(event.currentTarget.value) || 0)}
       />
     </label>
   {/if}
 
   <div class="actions">
-    <button type="button" on:click={() => emitProps({ running: true })} disabled={running}>Start</button>
-    <button type="button" on:click={() => emitProps({ running: false })} disabled={!running}>Stop</button>
+    <button type="button" on:click={() => emitPropsImmediate({ running: true })} disabled={running}>Start</button>
+    <button type="button" on:click={() => emitPropsImmediate({ running: false })} disabled={!running}>Stop</button>
     <button
       type="button"
-      on:click={() => emitProps({ running: false, durationSeconds: originalDuration })}
+      on:click={() => emitPropsImmediate({ running: false, durationSeconds: originalDuration })}
     >
       Reset
     </button>
@@ -77,7 +104,7 @@
       type="number"
       min="8"
       value={fontSize}
-      on:input={(event) => emitProps({ fontSize: Number(event.currentTarget.value) || 32 })}
+      on:input={(event) => emitProp("fontSize", Number(event.currentTarget.value) || 32)}
     />
   </label>
 
@@ -86,7 +113,7 @@
     <input
       type="color"
       value={color}
-      on:input={(event) => emitProps({ color: event.currentTarget.value })}
+      on:input={(event) => emitProp("color", event.currentTarget.value)}
     />
   </label>
 </section>

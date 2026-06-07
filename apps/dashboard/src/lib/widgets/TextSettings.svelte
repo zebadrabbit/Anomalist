@@ -1,10 +1,19 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import type { Widget } from "@anomalist/types";
+  import type { Widget, WidgetUpdate } from "@anomalist/types";
 
   export let widget: Widget;
 
-  const dispatch = createEventDispatcher<{ update: Widget }>();
+  const dispatch = createEventDispatcher<{ update: WidgetUpdate }>();
+  const debouncers = new Map<string, (value: unknown) => void>();
+
+  function debounce(fn: (...args: any[]) => void, ms: number) {
+    let timer: ReturnType<typeof setTimeout>;
+    return (...args: any[]) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -14,14 +23,21 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
-  function emitProps(nextProps: Record<string, unknown>) {
-    dispatch("update", {
-      ...widget,
-      props: {
-        ...widget.props,
-        ...nextProps
-      }
-    });
+  function emitProp(key: string, value: unknown) {
+    let debounced = debouncers.get(key);
+    if (!debounced) {
+      debounced = debounce((nextValue: unknown) => {
+        dispatch("update", {
+          id: widget.id,
+          props: {
+            [key]: nextValue
+          }
+        });
+      }, 150);
+      debouncers.set(key, debounced);
+    }
+
+    debounced(value);
   }
 
   $: content = asString(widget.props.content, "Text");
@@ -35,7 +51,7 @@
 <section>
   <label>
     Content
-    <input value={content} on:input={(event) => emitProps({ content: event.currentTarget.value })} />
+    <input value={content} on:input={(event) => emitProp("content", event.currentTarget.value)} />
   </label>
 
   <label>
@@ -44,7 +60,7 @@
       type="number"
       min="8"
       value={fontSize}
-      on:input={(event) => emitProps({ fontSize: Number(event.currentTarget.value) || 24 })}
+      on:input={(event) => emitProp("fontSize", Number(event.currentTarget.value) || 24)}
     />
   </label>
 
@@ -53,7 +69,7 @@
     <input
       type="color"
       value={color}
-      on:input={(event) => emitProps({ color: event.currentTarget.value })}
+      on:input={(event) => emitProp("color", event.currentTarget.value)}
     />
   </label>
 
@@ -61,7 +77,7 @@
     <input
       type="checkbox"
       checked={fontWeight === "bold"}
-      on:change={(event) => emitProps({ fontWeight: event.currentTarget.checked ? "bold" : "normal" })}
+      on:change={(event) => emitProp("fontWeight", event.currentTarget.checked ? "bold" : "normal")}
     />
     Bold
   </label>
@@ -71,7 +87,7 @@
       type="checkbox"
       checked={isTransparent}
       on:change={(event) =>
-        emitProps({ backgroundColor: event.currentTarget.checked ? "transparent" : "#000000" })}
+        emitProp("backgroundColor", event.currentTarget.checked ? "transparent" : "#000000")}
     />
     Transparent Background
   </label>
@@ -82,7 +98,7 @@
       type="color"
       value={isTransparent ? "#000000" : backgroundColor}
       disabled={isTransparent}
-      on:input={(event) => emitProps({ backgroundColor: event.currentTarget.value })}
+      on:input={(event) => emitProp("backgroundColor", event.currentTarget.value)}
     />
   </label>
 </section>

@@ -1,10 +1,19 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import type { Widget } from "@anomalist/types";
+  import type { Widget, WidgetUpdate } from "@anomalist/types";
 
   export let widget: Widget;
 
-  const dispatch = createEventDispatcher<{ update: Widget }>();
+  const dispatch = createEventDispatcher<{ update: WidgetUpdate }>();
+  const debouncers = new Map<string, (value: unknown) => void>();
+
+  function debounce(fn: (...args: any[]) => void, ms: number) {
+    let timer: ReturnType<typeof setTimeout>;
+    return (...args: any[]) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -14,14 +23,32 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
-  function emitProps(nextProps: Record<string, unknown>) {
+  const emitImmediate = debounce((updates: Record<string, unknown>) => {
     dispatch("update", {
-      ...widget,
-      props: {
-        ...widget.props,
-        ...nextProps
-      }
+      id: widget.id,
+      props: updates
     });
+  }, 0);
+
+  function emitProp(key: string, value: unknown) {
+    let debounced = debouncers.get(key);
+    if (!debounced) {
+      debounced = debounce((nextValue: unknown) => {
+        dispatch("update", {
+          id: widget.id,
+          props: {
+            [key]: nextValue
+          }
+        });
+      }, 150);
+      debouncers.set(key, debounced);
+    }
+
+    debounced(value);
+  }
+
+  function emitPropsImmediate(updates: Record<string, unknown>) {
+    emitImmediate(updates);
   }
 
   $: value = Math.floor(asNumber(widget.props.value, 0));
@@ -31,8 +58,8 @@
 
 <section>
   <div class="counter-actions">
-    <button type="button" class="big" on:click={() => emitProps({ value: value - step })}>-</button>
-    <button type="button" class="big" on:click={() => emitProps({ value: value + step })}>+</button>
+    <button type="button" class="big" on:click={() => emitPropsImmediate({ value: value - step })}>-</button>
+    <button type="button" class="big" on:click={() => emitPropsImmediate({ value: value + step })}>+</button>
   </div>
 
   <label>
@@ -41,16 +68,16 @@
       type="number"
       min="1"
       value={step}
-      on:input={(event) => emitProps({ step: Number(event.currentTarget.value) || 1 })}
+      on:input={(event) => emitProp("step", Number(event.currentTarget.value) || 1)}
     />
   </label>
 
   <label>
     Label
-    <input value={label} on:input={(event) => emitProps({ label: event.currentTarget.value })} />
+    <input value={label} on:input={(event) => emitProp("label", event.currentTarget.value)} />
   </label>
 
-  <button type="button" on:click={() => emitProps({ value: 0 })}>Reset</button>
+  <button type="button" on:click={() => emitPropsImmediate({ value: 0 })}>Reset</button>
 </section>
 
 <style>

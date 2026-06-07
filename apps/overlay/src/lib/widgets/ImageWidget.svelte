@@ -11,9 +11,28 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
+  function getAltText(imageUrl: string): string {
+    if (!imageUrl || imageUrl.startsWith("data:")) {
+      return "Stream overlay image";
+    }
+
+    const withoutQuery = imageUrl.split("?")[0].split("#")[0];
+    const filename = withoutQuery.split("/").filter(Boolean).pop();
+    if (!filename) {
+      return "Stream overlay image";
+    }
+
+    try {
+      return decodeURIComponent(filename);
+    } catch {
+      return filename;
+    }
+  }
+
   $: url = asString(widget.props.url, "");
   $: opacity = Math.min(1, Math.max(0, asNumber(widget.props.opacity, 1)));
   $: borderRadius = Math.max(0, asNumber(widget.props.borderRadius, 0));
+  $: altText = getAltText(url);
 </script>
 
 <div
@@ -22,7 +41,7 @@
   {#if url}
     <img
       src={url}
-      alt="image widget"
+      alt={altText}
       style="width:100%;height:100%;object-fit:contain;display:block;"
     />
   {:else}

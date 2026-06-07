@@ -10,6 +10,12 @@ export interface Widget {
   props: Record<string, unknown>;
 }
 
+export type WidgetUpdate =
+  { id: string } &
+  Partial<Omit<Widget, "id" | "props">> & {
+    props?: Partial<Widget["props"]>;
+  };
+
 export interface Layer {
   id: string;
   name: string;

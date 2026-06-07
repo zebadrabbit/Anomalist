@@ -3,7 +3,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
-import type { CanvasState, Widget } from "@anomalist/types";
+import type { CanvasState, Widget, WidgetUpdate } from "@anomalist/types";
 import { SocketEvents } from "@anomalist/types";
 import { loadState, saveState } from "./db.js";
 
@@ -109,7 +109,7 @@ io.on("connection", (socket) => {
     io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
   });
 
-  socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Partial<Widget> & { id: string }) => {
+  socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Widget | WidgetUpdate) => {
     if (socket.data.role !== "dashboard") {
       return;
     }
@@ -124,10 +124,16 @@ io.on("connection", (socket) => {
       return;
     }
 
-    activeScene.widgets[widgetIndex] = {
-      ...activeScene.widgets[widgetIndex],
-      ...incomingWidget
-    };
+    const existingWidget = activeScene.widgets[widgetIndex];
+    const { id: _id, props, ...topLevelUpdates } = incomingWidget;
+
+    Object.assign(existingWidget, topLevelUpdates);
+    if (props && typeof props === "object") {
+      existingWidget.props = {
+        ...existingWidget.props,
+        ...props
+      };
+    }
 
     saveState("staging", stagingState);
     io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
