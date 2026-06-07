@@ -92,8 +92,8 @@
     dispatch("select", nextWidgetId);
   }
 
-  function getRenderedWidget(widget: Widget): Widget {
-    const draft = draftWidgets[widget.id] ?? {};
+  function getRenderedWidget(widget: Widget, drafts: Record<string, Partial<Widget>>): Widget {
+    const draft = drafts[widget.id] ?? {};
     return {
       ...widget,
       ...draft
@@ -417,10 +417,10 @@
     style={`transform: scale(${scale}); width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px;`}
   >
     {#each widgets as sourceWidget (sourceWidget.id)}
-      {@const widget = getRenderedWidget(sourceWidget)}
+      {@const widget = getRenderedWidget(sourceWidget, draftWidgets)}
       <div
-        class={`widget-frame ${$selectedStore === sourceWidget.id ? "selected" : ""}`}
-        style={`left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;transform: rotate(${widget.rotation ?? 0}deg);`}
+        class={`widget-frame ${$selectedStore === sourceWidget.id ? "selected" : ""}${!sourceWidget.visible ? " hidden-widget" : ""}`}
+        style={`left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;transform: rotate(${widget.rotation ?? 0}deg);opacity:${sourceWidget.visible ? 1 : 0.4};`}
         on:mousedown={(event) => handleWidgetMouseDown(event, sourceWidget)}
         on:touchstart={(event) => handleWidgetTouchStart(event, sourceWidget)}
       >
@@ -501,6 +501,11 @@
   .widget-frame.selected {
     border: 2px solid #39b5ff;
     box-shadow: 0 0 0 2px rgba(57, 181, 255, 0.3);
+  }
+
+  .hidden-widget {
+    border: 1px dashed rgba(255, 200, 50, 0.8) !important;
+    box-shadow: none !important;
   }
 
   .widget-preview {

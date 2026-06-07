@@ -108,7 +108,7 @@
       width: dimensions[type].width,
       height: dimensions[type].height,
       rotation: 0,
-      visible: true,
+      visible: false,
       layerId: "layer-1",
       props: {
         ...widgetDefaults[type]
@@ -209,6 +209,20 @@
             Selected: <strong>{selectedWidget.type}</strong>
           </p>
           <div class="actions">
+            <button
+              type="button"
+              class="visibility-toggle"
+              on:click={() => {
+                if (socket && selectedWidget) {
+                  socket.emit(SocketEvents.WIDGET_UPDATE, {
+                    id: selectedWidget.id,
+                    visible: !selectedWidget.visible
+                  });
+                }
+              }}
+            >
+              {selectedWidget.visible ? "Hide" : "Show"}
+            </button>
             <button type="button" class="danger" on:click={removeSelectedWidget}>Remove Widget</button>
           </div>
 
@@ -305,6 +319,12 @@
     background: #e5484d;
     color: #fff;
     border-color: #e5484d;
+  }
+
+  .visibility-toggle {
+    background: #7c5cbf;
+    color: #fff;
+    border-color: #7c5cbf;
   }
 
   .push {
