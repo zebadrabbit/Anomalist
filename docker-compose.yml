@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: ./apps/server
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/server/src:/app/src
+    environment:
+      - NODE_ENV=development
+
+#  db:
+#    image: postgres:16-alpine
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_USER: anomalist
+#      POSTGRES_PASSWORD: anomalist
+#      POSTGRES_DB: anomalist
+#    ports:
+#      - "5432:5432"
+#    volumes:
+#      - pgdata:/var/lib/postgresql/data
+
+#volumes:
+#  pgdata:

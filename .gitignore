@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.svelte-kit
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+coverage
+.turbo
