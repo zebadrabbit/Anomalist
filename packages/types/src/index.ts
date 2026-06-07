@@ -35,6 +35,7 @@ export interface User {
 }
 
 export const SocketEvents = {
+  AUTH_ERROR: "AUTH_ERROR",
   CANVAS_UPDATE: "CANVAS_UPDATE",
   PUSH_TO_LIVE: "PUSH_TO_LIVE",
   STAGING_UPDATE: "STAGING_UPDATE",
