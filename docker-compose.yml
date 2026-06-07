@@ -1,27 +1,18 @@
-version: "3.9"
-
 services:
-  server:
+  anomalist:
     build:
-      context: ./apps/server
+      context: .
+      dockerfile: apps/server/Dockerfile
     ports:
-      - "3001:3001"
+      - "${PORT:-3001}:3001"
     volumes:
-      - ./apps/server/src:/app/src
+      - anomalist_data:/app/data
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_PATH=/app/data/anomalist.db
+      - OWNER_TOKEN=${OWNER_TOKEN:-change-me}
+    restart: unless-stopped
 
-#  db:
-#    image: postgres:16-alpine
-#    restart: unless-stopped
-#    environment:
-#      POSTGRES_USER: anomalist
-#      POSTGRES_PASSWORD: anomalist
-#      POSTGRES_DB: anomalist
-#    ports:
-#      - "5432:5432"
-#    volumes:
-#      - pgdata:/var/lib/postgresql/data
-
-#volumes:
-#  pgdata:
+volumes:
+  anomalist_data:

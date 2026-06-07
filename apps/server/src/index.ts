@@ -1,18 +1,32 @@
 import "dotenv/config";
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
+import path from "node:path";
 import { Server } from "socket.io";
 import type { CanvasState, Widget, WidgetUpdate } from "@anomalist/types";
-import { SocketEvents } from "@anomalist/types";
 import { loadState, saveState } from "./db.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
+const SocketEvents = {
+  AUTH_ERROR: "AUTH_ERROR",
+  CANVAS_UPDATE: "CANVAS_UPDATE",
+  PUSH_TO_LIVE: "PUSH_TO_LIVE",
+  STAGING_UPDATE: "STAGING_UPDATE",
+  WIDGET_ADD: "WIDGET_ADD",
+  WIDGET_REMOVE: "WIDGET_REMOVE",
+  WIDGET_UPDATE: "WIDGET_UPDATE",
+  SCENE_CHANGE: "SCENE_CHANGE"
+} as const;
 const configuredOwnerToken = process.env.OWNER_TOKEN;
 const ownerToken =
   configuredOwnerToken && configuredOwnerToken !== "change-me" ? configuredOwnerToken : randomUUID();
+const isProduction = process.env.NODE_ENV === "production";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 if (!configuredOwnerToken || configuredOwnerToken === "change-me") {
   console.log(
@@ -57,6 +71,27 @@ if (!persistedLiveState) {
 
 function getActiveScene(state: CanvasState) {
   return state.scenes.find((scene) => scene.id === state.activeSceneId);
+}
+
+if (isProduction) {
+  const dashboardBuildPath = path.join(__dirname, "../../dashboard/build");
+  const overlayBuildPath = path.join(__dirname, "../../overlay/build");
+
+  app.use("/overlay", express.static(overlayBuildPath));
+  app.use(express.static(dashboardBuildPath));
+
+  app.get("/overlay/*rest", (_req, res) => {
+    res.sendFile(path.join(overlayBuildPath, "index.html"));
+  });
+
+  app.get("/*rest", (req, res, next) => {
+    if (req.path.startsWith("/socket.io") || req.path.startsWith("/overlay")) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(dashboardBuildPath, "index.html"));
+  });
 }
 
 const httpServer = createServer(app);

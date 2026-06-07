@@ -1,0 +1,10 @@
+services:
+  server:
+    build:
+      context: ./apps/server
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/server/src:/app/src
+    environment:
+      - NODE_ENV=development
