@@ -536,7 +536,21 @@
   });
 </script>
 
-<div class="canvas-shell" bind:this={shellElement} on:mousedown={() => selectWidget(null)} on:touchstart={() => selectWidget(null)}>
+<div
+  class="canvas-shell"
+  bind:this={shellElement}
+  role="button"
+  tabindex="0"
+  aria-label="Deselect widget"
+  on:mousedown={() => selectWidget(null)}
+  on:touchstart={() => selectWidget(null)}
+  on:keydown={(event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectWidget(null);
+    }
+  }}
+>
   <div
     class="canvas-stage"
     bind:this={canvasElement}
@@ -545,9 +559,18 @@
     {#each widgets as sourceWidget (sourceWidget.id)}
       <div
         class={`widget-frame ${$selectedStore === sourceWidget.id ? "selected" : ""}${!sourceWidget.visible ? " hidden-widget" : ""}`}
+        role="button"
+        tabindex="0"
+        aria-label={`Select ${sourceWidget.type} widget`}
         style={`left:${draftWidgets[sourceWidget.id]?.x ?? sourceWidget.x}px;top:${draftWidgets[sourceWidget.id]?.y ?? sourceWidget.y}px;width:${draftWidgets[sourceWidget.id]?.width ?? sourceWidget.width}px;height:${draftWidgets[sourceWidget.id]?.height ?? sourceWidget.height}px;transform:rotate(${draftWidgets[sourceWidget.id]?.rotation ?? sourceWidget.rotation ?? 0}deg);opacity:${sourceWidget.visible ? 1 : 0.4};`}
         on:mousedown={(event) => handleWidgetMouseDown(event, sourceWidget)}
         on:touchstart={(event) => handleWidgetTouchStart(event, sourceWidget)}
+        on:keydown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectWidget(sourceWidget.id);
+          }
+        }}
       >
         <div class="widget-preview">
           {#if sourceWidget.type === "text"}
@@ -619,21 +642,23 @@
         </div>
 
         {#if $selectedStore === sourceWidget.id && canTransform}
-          <div class="rotation-line" />
+          <div class="rotation-line"></div>
           <button
             type="button"
             class="rotation-handle"
+            aria-label="Rotate widget"
             on:mousedown={(event) => handleRotateMouseDown(event, sourceWidget)}
             on:touchstart={(event) => handleRotateTouchStart(event, sourceWidget)}
-          />
+          ></button>
 
           {#each handles as handle}
             <button
               type="button"
               class={`resize-handle handle-${handle}`}
+              aria-label={`Resize widget ${handle}`}
               on:mousedown={(event) => handleResizeMouseDown(event, sourceWidget, handle)}
               on:touchstart={(event) => handleResizeTouchStart(event, sourceWidget, handle)}
-            />
+            ></button>
           {/each}
         {/if}
       </div>
