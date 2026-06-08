@@ -417,10 +417,9 @@
     style={`transform: scale(${scale}); width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px;`}
   >
     {#each widgets as sourceWidget (sourceWidget.id)}
-      {@const widget = getRenderedWidget(sourceWidget, draftWidgets)}
       <div
         class={`widget-frame ${$selectedStore === sourceWidget.id ? "selected" : ""}${!sourceWidget.visible ? " hidden-widget" : ""}`}
-        style={`left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;transform: rotate(${widget.rotation ?? 0}deg);opacity:${sourceWidget.visible ? 1 : 0.4};`}
+        style={`left:${draftWidgets[sourceWidget.id]?.x ?? sourceWidget.x}px;top:${draftWidgets[sourceWidget.id]?.y ?? sourceWidget.y}px;width:${draftWidgets[sourceWidget.id]?.width ?? sourceWidget.width}px;height:${draftWidgets[sourceWidget.id]?.height ?? sourceWidget.height}px;transform:rotate(${draftWidgets[sourceWidget.id]?.rotation ?? sourceWidget.rotation ?? 0}deg);opacity:${sourceWidget.visible ? 1 : 0.4};`}
         on:mousedown={(event) => handleWidgetMouseDown(event, sourceWidget)}
         on:touchstart={(event) => handleWidgetTouchStart(event, sourceWidget)}
       >
