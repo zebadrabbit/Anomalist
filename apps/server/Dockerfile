@@ -12,6 +12,7 @@ RUN npm ci
 
 COPY . .
 
+RUN npm run build --workspace=packages/types
 RUN npm run build --workspace=apps/dashboard
 RUN npm run build --workspace=apps/overlay
 RUN npm run build --workspace=apps/server
@@ -31,6 +32,7 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/apps/dashboard/build ./apps/dashboard/build
 COPY --from=builder /app/apps/overlay/build ./apps/overlay/build
+COPY --from=builder /app/packages/types/dist ./packages/types/dist
 
 ENV NODE_ENV=production
 EXPOSE 3001

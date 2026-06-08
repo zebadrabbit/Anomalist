@@ -23,6 +23,7 @@
   export let stagingState: CanvasState;
   export let socket: Socket | null;
   export let selectedWidgetId: string | null;
+  export let canTransform = true;
 
   const dispatch = createEventDispatcher<{ select: string | null }>();
   const selectedStore = writable<string | null>(null);
@@ -249,6 +250,9 @@
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
+    if (!canTransform) {
+      return;
+    }
     beginDrag(widget, getPointFromMouse(event));
   }
 
@@ -256,10 +260,16 @@
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
+    if (!canTransform) {
+      return;
+    }
     beginDrag(widget, getPointFromTouch(event));
   }
 
   function handleResizeMouseDown(event: MouseEvent, widget: Widget, handle: ResizeHandle) {
+    if (!canTransform) {
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
@@ -267,6 +277,9 @@
   }
 
   function handleResizeTouchStart(event: TouchEvent, widget: Widget, handle: ResizeHandle) {
+    if (!canTransform) {
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
@@ -274,6 +287,9 @@
   }
 
   function handleRotateMouseDown(event: MouseEvent, widget: Widget) {
+    if (!canTransform) {
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
@@ -281,6 +297,9 @@
   }
 
   function handleRotateTouchStart(event: TouchEvent, widget: Widget) {
+    if (!canTransform) {
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     selectWidget(widget.id);
@@ -413,7 +432,7 @@
   }
 
   function onPointerMove(point: { x: number; y: number }, snap: boolean) {
-    if (!interaction) {
+    if (!interaction || !canTransform) {
       return;
     }
 
@@ -599,7 +618,7 @@
           {/if}
         </div>
 
-        {#if $selectedStore === sourceWidget.id}
+        {#if $selectedStore === sourceWidget.id && canTransform}
           <div class="rotation-line" />
           <button
             type="button"
