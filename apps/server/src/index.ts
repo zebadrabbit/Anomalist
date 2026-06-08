@@ -14,8 +14,6 @@ const JOIN_EVENT = "JOIN";
 const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
   CANVAS_UPDATE: "CANVAS_UPDATE",
-  PUSH_TO_LIVE: "PUSH_TO_LIVE",
-  STAGING_UPDATE: "STAGING_UPDATE",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",
   WIDGET_UPDATE: "WIDGET_UPDATE",
@@ -55,18 +53,12 @@ function createDefaultState(): CanvasState {
   };
 }
 
-const persistedStagingState = loadState("staging");
-const persistedLiveState = loadState("live");
+const persistedCanvasState = loadState("canvas");
 
-let stagingState: CanvasState = persistedStagingState ?? createDefaultState();
-let liveState: CanvasState = persistedLiveState ?? createDefaultState();
+let canvasState: CanvasState = persistedCanvasState ?? createDefaultState();
 
-if (!persistedStagingState) {
-  saveState("staging", stagingState);
-}
-
-if (!persistedLiveState) {
-  saveState("live", liveState);
+if (!persistedCanvasState) {
+  saveState("canvas", canvasState);
 }
 
 function getActiveScene(state: CanvasState) {
@@ -118,15 +110,7 @@ io.on("connection", (socket) => {
     }
 
     socket.data.role = payload.role;
-    socket.join(payload.role);
-
-    if (payload.role === "dashboard") {
-      socket.emit(SocketEvents.STAGING_UPDATE, stagingState);
-    }
-
-    if (payload.role === "overlay") {
-      socket.emit(SocketEvents.CANVAS_UPDATE, liveState);
-    }
+    socket.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.WIDGET_ADD, (widget: Widget) => {
@@ -134,14 +118,14 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const activeScene = getActiveScene(stagingState);
+    const activeScene = getActiveScene(canvasState);
     if (!activeScene) {
       return;
     }
 
     activeScene.widgets.push(widget);
-    saveState("staging", stagingState);
-    io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Widget | WidgetUpdate) => {
@@ -149,7 +133,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const activeScene = getActiveScene(stagingState);
+    const activeScene = getActiveScene(canvasState);
     if (!activeScene) {
       return;
     }
@@ -170,8 +154,8 @@ io.on("connection", (socket) => {
       };
     }
 
-    saveState("staging", stagingState);
-    io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
@@ -179,14 +163,14 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const activeScene = getActiveScene(stagingState);
+    const activeScene = getActiveScene(canvasState);
     if (!activeScene) {
       return;
     }
 
     activeScene.widgets = activeScene.widgets.filter((widget) => widget.id !== payload.id);
-    saveState("staging", stagingState);
-    io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.SCENE_CHANGE, (payload: { sceneId: string }) => {
@@ -194,25 +178,14 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const sceneExists = stagingState.scenes.some((scene) => scene.id === payload.sceneId);
+    const sceneExists = canvasState.scenes.some((scene) => scene.id === payload.sceneId);
     if (!sceneExists) {
       return;
     }
 
-    stagingState.activeSceneId = payload.sceneId;
-    saveState("staging", stagingState);
-    io.to("dashboard").emit(SocketEvents.STAGING_UPDATE, stagingState);
-  });
-
-  socket.on(SocketEvents.PUSH_TO_LIVE, () => {
-    if (socket.data.role !== "dashboard") {
-      return;
-    }
-
-    liveState = structuredClone(stagingState);
-    saveState("live", liveState);
-    io.to("overlay").emit(SocketEvents.CANVAS_UPDATE, liveState);
-    socket.emit(SocketEvents.CANVAS_UPDATE, liveState);
+    canvasState.activeSceneId = payload.sceneId;
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 });
 

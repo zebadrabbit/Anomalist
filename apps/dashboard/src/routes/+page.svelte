@@ -14,7 +14,7 @@
 
   const JOIN_EVENT = "JOIN";
 
-  const stagingState = writable<CanvasState | null>(null);
+  const canvasState = writable<CanvasState | null>(null);
   const widgetDefaults: Record<WidgetType, Record<string, unknown>> = {
     text: {
       content: "Text",
@@ -45,13 +45,12 @@
   };
 
   let socket: Socket | null = null;
-  let livePushed = false;
   let token = "";
   let authError = "";
   let isAuthenticated = false;
   let selectedWidgetId: string | null = null;
 
-  $: activeScene = $stagingState?.scenes.find((scene) => scene.id === $stagingState.activeSceneId);
+  $: activeScene = $canvasState?.scenes.find((scene) => scene.id === $canvasState.activeSceneId);
   $: widgets = activeScene?.widgets ?? [];
   $: selectedWidget = selectedWidgetId ? widgets.find((widget) => widget.id === selectedWidgetId) ?? null : null;
   $: if (selectedWidgetId && !widgets.some((widget) => widget.id === selectedWidgetId)) {
@@ -60,7 +59,6 @@
 
   function connectDashboard() {
     authError = "";
-    livePushed = false;
     isAuthenticated = false;
 
     socket?.disconnect();
@@ -71,19 +69,15 @@
       authError = message;
       isAuthenticated = false;
       selectedWidgetId = null;
-      stagingState.set(null);
+      canvasState.set(null);
       socket?.disconnect();
       socket = null;
     });
 
-    socket.on(SocketEvents.STAGING_UPDATE, (nextState: CanvasState) => {
-      stagingState.set(nextState);
+    socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
+      canvasState.set(nextState);
       isAuthenticated = true;
       authError = "";
-    });
-
-    socket.on(SocketEvents.CANVAS_UPDATE, () => {
-      livePushed = true;
     });
   }
 
@@ -123,7 +117,6 @@
 
     const widget = createWidget(type);
     selectedWidgetId = widget.id;
-    livePushed = false;
     socket.emit(SocketEvents.WIDGET_ADD, widget);
   }
 
@@ -132,21 +125,12 @@
       return;
     }
 
-    livePushed = false;
     socket.emit(SocketEvents.WIDGET_REMOVE, { id: selectedWidget.id });
     selectedWidgetId = null;
   }
 
   function handleCanvasSelect(event: CustomEvent<string | null>) {
     selectedWidgetId = event.detail;
-  }
-
-  function pushToLive() {
-    if (!socket || !isAuthenticated) {
-      return;
-    }
-
-    socket.emit(SocketEvents.PUSH_TO_LIVE);
   }
 
   onMount(() => {
@@ -175,8 +159,7 @@
       <div class="toolbar-top">
         <h2>Canvas Controls</h2>
         <p>
-          Staging widget count: <strong>{widgets.length}</strong> | Live:
-          <strong>{livePushed ? "Synced" : "Not Synced"}</strong>
+          Widget count: <strong>{widgets.length}</strong>
         </p>
       </div>
       <div class="actions toolbar-actions">
@@ -184,21 +167,20 @@
         <button type="button" on:click={() => addWidget("image")}>Image</button>
         <button type="button" on:click={() => addWidget("timer")}>Timer</button>
         <button type="button" on:click={() => addWidget("counter")}>Counter</button>
-        <button type="button" class="push" on:click={pushToLive}>Push to Live</button>
       </div>
     </section>
 
     <section class="workspace">
       <div class="canvas-column panel">
-        {#if $stagingState && socket}
+        {#if $canvasState && socket}
           <Canvas
-            stagingState={$stagingState}
+            stagingState={$canvasState}
             {socket}
             {selectedWidgetId}
             on:select={handleCanvasSelect}
           />
         {:else}
-          <p>Waiting for staging state...</p>
+          <p>Waiting for canvas state...</p>
         {/if}
       </div>
 
@@ -325,12 +307,6 @@
     background: #7c5cbf;
     color: #fff;
     border-color: #7c5cbf;
-  }
-
-  .push {
-    background: #1f6feb;
-    color: #fff;
-    border-color: #1f6feb;
   }
 
   @media (max-width: 1100px) {
