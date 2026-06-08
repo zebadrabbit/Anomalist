@@ -53,6 +53,25 @@
     return Math.min(max, Math.max(min, value));
   }
 
+  function throttle<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+    let last = 0;
+    return ((...args: any[]) => {
+      const now = Date.now();
+      if (now - last >= ms) {
+        last = now;
+        fn(...args);
+      }
+    }) as T;
+  }
+
+  const emitTransform = throttle((widgetId: string, draft: Partial<Widget>) => {
+    if (!socket) {
+      return;
+    }
+
+    socket.emit(SocketEvents.WIDGET_TRANSFORM, { id: widgetId, ...draft });
+  }, 33);
+
   function updateScale() {
     if (!shellElement) {
       return;
@@ -110,6 +129,8 @@
         ...nextDraft
       }
     };
+
+    emitTransform(widgetId, draftWidgets[widgetId] ?? {});
   }
 
   function clearDraft(widgetId: string) {

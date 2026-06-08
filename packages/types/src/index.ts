@@ -17,6 +17,10 @@ export type WidgetUpdate =
     props?: Partial<Widget["props"]>;
   };
 
+export type WidgetTransform =
+  { id: string } &
+  Partial<Pick<Widget, "x" | "y" | "width" | "height" | "rotation">>;
+
 export interface Layer {
   id: string;
   name: string;
@@ -44,6 +48,7 @@ export interface User {
 export const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
   CANVAS_UPDATE: "CANVAS_UPDATE",
+  WIDGET_TRANSFORM: "widget:transform",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",
   WIDGET_UPDATE: "WIDGET_UPDATE",

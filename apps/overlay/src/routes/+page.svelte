@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState } from "@anomalist/types";
+  import type { CanvasState, Widget, WidgetTransform } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import CounterWidget from "../lib/widgets/CounterWidget.svelte";
   import ImageWidget from "../lib/widgets/ImageWidget.svelte";
@@ -13,6 +13,7 @@
 
   const liveState = writable<CanvasState | null>(null);
   let socket: Socket | null = null;
+  let transformDrafts: Record<string, Partial<Widget>> = {};
 
   $: activeScene = $liveState?.scenes.find((scene) => scene.id === $liveState.activeSceneId);
   $: widgets = activeScene?.widgets.filter((widget) => widget.visible) ?? [];
@@ -41,8 +42,20 @@
     socket = io(window.location.origin);
     socket.emit(JOIN_EVENT, { role: "overlay" });
 
+    socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
+      const { id, ...transform } = data;
+      transformDrafts = {
+        ...transformDrafts,
+        [id]: {
+          ...(transformDrafts[id] ?? {}),
+          ...transform
+        }
+      };
+    });
+
     socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
       liveState.set(nextState);
+      transformDrafts = {};
     });
 
     return () => {
@@ -57,7 +70,7 @@
     {@const WidgetComponent = resolveComponent(widget.type)}
     <div
       class="widget-frame"
-      style={`left:${widget.x}px;top:${widget.y}px;width:${widget.width}px;height:${widget.height}px;transform: rotate(${widget.rotation ?? 0}deg);`}
+      style={`left:${transformDrafts[widget.id]?.x ?? widget.x}px;top:${transformDrafts[widget.id]?.y ?? widget.y}px;width:${transformDrafts[widget.id]?.width ?? widget.width}px;height:${transformDrafts[widget.id]?.height ?? widget.height}px;transform:rotate(${transformDrafts[widget.id]?.rotation ?? widget.rotation ?? 0}deg);position:absolute;`}
     >
       {#if WidgetComponent}
         <svelte:component this={WidgetComponent} {widget} />

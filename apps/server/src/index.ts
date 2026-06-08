@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import path from "node:path";
 import { Server } from "socket.io";
-import type { CanvasState, Widget, WidgetUpdate } from "@anomalist/types";
+import type { CanvasState, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
 import { loadState, saveState } from "./db.js";
 
 const app = express();
@@ -14,6 +14,7 @@ const JOIN_EVENT = "JOIN";
 const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
   CANVAS_UPDATE: "CANVAS_UPDATE",
+  WIDGET_TRANSFORM: "widget:transform",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",
   WIDGET_UPDATE: "WIDGET_UPDATE",
@@ -156,6 +157,10 @@ io.on("connection", (socket) => {
 
     saveState("canvas", canvasState);
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+  });
+
+  socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
+    socket.broadcast.emit(SocketEvents.WIDGET_TRANSFORM, data);
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
