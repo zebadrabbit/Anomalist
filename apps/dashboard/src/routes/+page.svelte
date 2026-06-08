@@ -258,8 +258,8 @@
       </div>
     </div>
   {:else}
-    <div class="navbar h-16 border-b border-base-300 bg-base-200 px-4">
-      <div class="navbar-start gap-3">
+    <nav class="h-16 bg-base-200 border-b border-base-300 flex items-center justify-between px-4 shrink-0">
+      <div class="flex items-center gap-3">
         <div class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/20 text-primary">
           <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true">
             <path d="M12 2 2 7l10 5 10-5-10-5Zm-7.5 8.5v5L12 20l7.5-4.5v-5L12 15l-7.5-4.5Z" />
@@ -268,17 +268,18 @@
         <span class="text-lg font-semibold">Anomalist</span>
       </div>
 
-      <div class="navbar-end gap-3">
+      <div class="flex items-center gap-3">
         <div class="flex items-center gap-2 text-sm">
           <span class={`inline-block h-2.5 w-2.5 rounded-full ${isConnected ? "bg-success" : "bg-error"}`}></span>
           <span>{isConnected ? "Live" : "Disconnected"}</span>
         </div>
         <button type="button" class="btn btn-outline btn-sm" on:click={logout}>Logout</button>
       </div>
-    </div>
+    </nav>
 
-    <section class="grid min-h-[calc(100vh-4rem)] grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
-      <aside class="border-r border-base-300 bg-base-200 p-4">
+    <div class="flex h-[calc(100vh-4rem)] overflow-hidden">
+      <aside class="w-56 shrink-0 bg-base-200 flex flex-col overflow-y-auto border-r border-base-300">
+        <div class="p-4">
         <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-base-content/60">Widgets</p>
         <div class="flex flex-col gap-1.5">
           <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("text")}>T Text</button>
@@ -327,9 +328,10 @@
         {#if sceneActionMessage}
           <div class="alert alert-info mt-3 p-2 text-xs">{sceneActionMessage}</div>
         {/if}
+        </div>
       </aside>
 
-      <div class="flex items-center justify-center bg-base-100 p-4">
+      <div class="min-w-0 flex-1 overflow-auto bg-base-100 p-4 flex items-center justify-center">
         {#if $canvasState && socket}
           <Canvas
             stagingState={$canvasState}
@@ -342,7 +344,7 @@
         {/if}
       </div>
 
-      <aside class="border-l border-base-300 bg-base-200 p-4">
+      <aside class="w-80 shrink-0 overflow-y-auto border-l border-base-300 bg-base-200 p-4">
         <div class="tabs tabs-bordered mb-4">
           <button type="button" class={`tab ${activeRightTab === "settings" ? "tab-active" : ""}`} on:click={() => (activeRightTab = "settings")}>Settings</button>
           <button type="button" class={`tab ${activeRightTab === "media" ? "tab-active" : ""}`} on:click={() => (activeRightTab = "media")}>Media</button>
@@ -398,6 +400,6 @@
           {/if}
         {/if}
       </aside>
-    </section>
+    </div>
   {/if}
 </main>

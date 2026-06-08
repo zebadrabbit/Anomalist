@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@source "./**/*.{html,js,ts,svelte}";
+@plugin "daisyui" {
+  themes: night --default;
+}
 
 :root {
   color-scheme: dark;
