@@ -28,6 +28,7 @@
     "media.delete.own": "Delete Own Media",
     "media.delete.any": "Delete Any Media",
     "soundboard.play": "Play Sounds",
+    "stream.manage": "Manage Stream",
     "user.manage": "Manage Users"
   };
 

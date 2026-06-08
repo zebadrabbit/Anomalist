@@ -16,7 +16,9 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "multer": "^2.1.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "tmi.js": "^1.8.5",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -24,6 +26,8 @@
     "@types/express": "^5.0.1",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.13.10",
+    "@types/tmi.js": "^1.8.6",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

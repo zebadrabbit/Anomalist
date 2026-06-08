@@ -9,6 +9,7 @@ export const Permissions = {
   MEDIA_DELETE_OWN: "media.delete.own",
   MEDIA_DELETE_ANY: "media.delete.any",
   SOUNDBOARD_PLAY: "soundboard.play",
+  STREAM_MANAGE: "stream.manage",
   USER_MANAGE: "user.manage"
 } as const;
 
@@ -18,7 +19,9 @@ const allPermissions = Object.values(Permissions) as Permission[];
 
 const roleDefaults: Record<string, Permission[]> = {
   owner: allPermissions,
-  editor: allPermissions.filter((permission) => permission !== Permissions.USER_MANAGE),
+  editor: allPermissions.filter(
+    (permission) => permission !== Permissions.USER_MANAGE && permission !== Permissions.STREAM_MANAGE
+  ),
   moderator: [
     Permissions.WIDGET_TRANSFORM,
     Permissions.WIDGET_VISIBILITY,

@@ -91,6 +91,27 @@ How to use it:
 OBS audio note:
 When your overlay is loaded as a browser source, OBS captures these sound plays automatically from the browser source audio output.
 
+## Chat Feed
+
+The Chat Feed widget shows your live Twitch chat directly on the overlay.
+
+It requires Twitch to be connected in Settings.
+
+How to use it:
+1. Add Chat Feed from the Add Widget list.
+2. Resize and place it on your canvas like any other widget.
+3. Open the widget settings and tune the display.
+
+Settings:
+- Max Messages: how many chat lines stay visible at once.
+- Font Size: text size in pixels.
+- Show Badges: show role labels next to names.
+- Color by Username: use each chatter's Twitch name color.
+- Background: widget background color (supports transparency).
+- Message Timeout: remove messages after N seconds (`0` keeps them forever).
+
+The Chat Feed only shows Twitch chat messages. It does not pull messages from other platforms.
+
 ## Custom HTML Widget
 
 The Custom HTML widget lets you paste your own HTML, CSS, and JavaScript snippets into a widget-sized frame.

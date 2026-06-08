@@ -11,16 +11,20 @@ import multer from "multer";
 import type { CanvasState, SoundPlay, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
 import { SocketEvents } from "@anomalist/types";
 import {
+  clearTwitchConfig,
   clearSessionToken,
   countOwners,
   countUsers,
   createUser,
   deletePreset,
   deleteUser,
+  getSetting,
   getUserById,
+  getTwitchConfig,
   getUserBySessionToken,
   getUserByUsername,
   getUserPermissionOverrides,
+  setSetting,
   listPresets,
   listUsers,
   loadPreset,
@@ -38,11 +42,19 @@ import {
 import { MEDIA_DIR, deleteMediaItem, getMediaType, listMediaItems, saveMediaItem } from "./media.js";
 import {
   Permissions,
-  getRolePermissions,
   listAllPermissions,
   resolvePermission,
   type Permission
 } from "./permissions.js";
+import { buildOAuthUrl, exchangeCode, getTwitchToken } from "./twitch.js";
+import { isChatbotConnected, startChatbot, stopChatbot } from "./chatbot.js";
+import {
+  getAlertConfig,
+  saveAlertConfig,
+  startEventSub,
+  stopEventSub,
+  type AlertConfig
+} from "./eventsub.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -54,6 +66,7 @@ const hasConfiguredOwnerToken = !!configuredOwnerToken && configuredOwnerToken !
 const SESSION_HOURS = Number(process.env.SESSION_HOURS ?? 24);
 const isProduction = process.env.NODE_ENV === "production";
 const failedLoginAttemptsByIp = new Map<string, number[]>();
+const SESSION_COOKIE_NAME = "sessionToken";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -175,7 +188,7 @@ function getEffectivePermissions(role: string, overrides: UserPermissionOverride
   );
 }
 
-function getAuthToken(req: express.Request): string | null {
+function getAuthTokenFromHeader(req: express.Request): string | null {
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) {
     return null;
@@ -183,6 +196,38 @@ function getAuthToken(req: express.Request): string | null {
 
   const token = header.slice("Bearer ".length).trim();
   return token.length > 0 ? token : null;
+}
+
+function getAuthTokenFromCookie(req: express.Request): string | null {
+  const rawCookie = req.headers.cookie;
+  if (!rawCookie) {
+    return null;
+  }
+
+  const pairs = rawCookie.split(";");
+  for (const pair of pairs) {
+    const [rawName, ...rawValueParts] = pair.trim().split("=");
+    if (rawName !== SESSION_COOKIE_NAME) {
+      continue;
+    }
+
+    const rawValue = rawValueParts.join("=").trim();
+    if (!rawValue) {
+      return null;
+    }
+
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return null;
+}
+
+function getAuthToken(req: express.Request): string | null {
+  return getAuthTokenFromHeader(req) ?? getAuthTokenFromCookie(req);
 }
 
 function extractAuthUser(req: express.Request): UserRow | null {
@@ -228,6 +273,28 @@ function requirePermission(
   }
 
   return { user, overrides };
+}
+
+function requireOwner(req: express.Request, res: express.Response): UserRow | null {
+  const user = extractAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+
+  if (user.role !== "owner") {
+    res.status(401).json({ error: "Owner role required" });
+    return null;
+  }
+
+  return user;
+}
+
+function requireStreamManage(
+  req: express.Request,
+  res: express.Response
+): { user: UserRow; overrides: UserPermissionOverrideRow[] } | null {
+  return requirePermission(req, res, Permissions.STREAM_MANAGE);
 }
 
 app.use("/media", express.static(MEDIA_DIR));
@@ -293,6 +360,15 @@ app.post("/api/auth/login", async (req, res) => {
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();
   setSessionToken(user.id, token, expiresAt);
 
+  const expiresAtDate = new Date(expiresAt);
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction,
+    expires: Number.isNaN(expiresAtDate.getTime()) ? undefined : expiresAtDate,
+    path: "/"
+  });
+
   res.json({ token, user: buildUserResponse(user) });
 });
 
@@ -304,6 +380,7 @@ app.post("/api/auth/logout", (req, res) => {
   }
 
   clearSessionToken(user.id);
+  res.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
   res.status(200).json({ ok: true });
 });
 
@@ -546,6 +623,331 @@ app.delete("/api/users/:id/permissions/:permission", (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+app.get("/api/twitch/status", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const config = getTwitchConfig();
+  if (!config) {
+    res.json({ connected: false });
+    return;
+  }
+
+  res.json({
+    connected: true,
+    login: config.twitch_login,
+    display_name: config.twitch_display_name,
+    chatbot: {
+      enabled: getSetting("chatbot_enabled") !== "false",
+      connected: isChatbotConnected()
+    }
+  });
+});
+
+app.post("/api/twitch/chatbot", async (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const { enabled } = req.body as { enabled?: unknown };
+  if (typeof enabled !== "boolean") {
+    res.status(400).json({ error: "enabled must be a boolean" });
+    return;
+  }
+
+  setSetting("chatbot_enabled", enabled ? "true" : "false");
+  if (!enabled) {
+    await stopChatbot();
+  } else {
+    await startChatbot(io, getCanvasState, setWidgetProps);
+  }
+
+  res.json({ ok: true, enabled });
+});
+
+app.get("/api/twitch/alerts/config", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  res.json(getAlertConfig());
+});
+
+app.get("/api/twitch/stream", async (req, res) => {
+  const guard = requireStreamManage(req, res);
+  if (!guard) {
+    return;
+  }
+
+  const config = getTwitchConfig();
+  const clientId = getSetting("twitch_client_id");
+  if (!config || !clientId) {
+    res.status(503).json({ error: "Twitch not connected" });
+    return;
+  }
+
+  try {
+    const token = await getTwitchToken();
+    const response = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(config.twitch_user_id)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Client-Id": clientId
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      res.status(503).json({ error: `Failed to fetch stream info: ${details || response.status}` });
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ title?: string; game_id?: string; game_name?: string }>;
+    };
+    const channel = payload.data?.[0] ?? {};
+
+    res.json({
+      title: typeof channel.title === "string" ? channel.title : "",
+      game_id: typeof channel.game_id === "string" ? channel.game_id : "",
+      game_name: typeof channel.game_name === "string" ? channel.game_name : ""
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(503).json({ error: message || "Failed to fetch stream info" });
+  }
+});
+
+app.patch("/api/twitch/stream", async (req, res) => {
+  const guard = requireStreamManage(req, res);
+  if (!guard) {
+    return;
+  }
+
+  const config = getTwitchConfig();
+  const clientId = getSetting("twitch_client_id");
+  if (!config || !clientId) {
+    res.status(503).json({ error: "Twitch not connected" });
+    return;
+  }
+
+  const { title, game_id } = req.body as { title?: unknown; game_id?: unknown };
+  const updateBody: Record<string, string> = {};
+
+  if (typeof title === "string") {
+    const normalizedTitle = title.trim();
+    if (normalizedTitle.length > 140) {
+      res.status(400).json({ error: "title must be 140 characters or fewer" });
+      return;
+    }
+    updateBody.title = normalizedTitle;
+  }
+
+  if (typeof game_id === "string") {
+    const normalizedGameId = game_id.trim();
+    if (!normalizedGameId) {
+      res.status(400).json({ error: "game_id must be a non-empty string" });
+      return;
+    }
+    updateBody.game_id = normalizedGameId;
+  }
+
+  if (Object.keys(updateBody).length === 0) {
+    res.status(400).json({ error: "At least one of title or game_id is required" });
+    return;
+  }
+
+  try {
+    const token = await getTwitchToken();
+    const response = await fetch(
+      `https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(config.twitch_user_id)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Client-Id": clientId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(updateBody)
+      }
+    );
+
+    if (response.status === 204) {
+      res.json({ ok: true });
+      return;
+    }
+
+    const details = await response.text().catch(() => "");
+    res.status(502).json({ error: "Twitch API error", details: details || String(response.status) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ error: "Twitch API error", details: message });
+  }
+});
+
+app.get("/api/twitch/stream/search-games", async (req, res) => {
+  const guard = requireStreamManage(req, res);
+  if (!guard) {
+    return;
+  }
+
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (query.length < 2) {
+    res.status(400).json({ error: "q must be at least 2 characters" });
+    return;
+  }
+
+  const clientId = getSetting("twitch_client_id");
+  if (!clientId || !getTwitchConfig()) {
+    res.status(503).json({ error: "Twitch not connected" });
+    return;
+  }
+
+  try {
+    const token = await getTwitchToken();
+    const response = await fetch(
+      `https://api.twitch.tv/helix/search/categories?query=${encodeURIComponent(query)}&first=8`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Client-Id": clientId
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      res.status(503).json({ error: `Failed to search games: ${details || response.status}` });
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ id?: string; name?: string; box_art_url?: string }>;
+    };
+
+    const items = (payload.data ?? [])
+      .slice(0, 8)
+      .map((item) => ({
+        id: typeof item.id === "string" ? item.id : "",
+        name: typeof item.name === "string" ? item.name : "",
+        box_art_url: typeof item.box_art_url === "string" ? item.box_art_url : ""
+      }))
+      .filter((item) => item.id && item.name);
+
+    res.json(items);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(503).json({ error: message || "Failed to search games" });
+  }
+});
+
+app.put("/api/twitch/alerts/config", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const current = getAlertConfig();
+  const patch = (req.body ?? {}) as Partial<AlertConfig>;
+  const mergeAction = (
+    base: AlertConfig["sub"],
+    incoming: Partial<AlertConfig["sub"]> | undefined
+  ): AlertConfig["sub"] => ({
+    soundUrl: typeof incoming?.soundUrl === "string" ? incoming.soundUrl : base.soundUrl,
+    widgetId: typeof incoming?.widgetId === "string" ? incoming.widgetId : base.widgetId,
+    duration:
+      typeof incoming?.duration === "number" && Number.isFinite(incoming.duration)
+        ? Math.max(1, incoming.duration)
+        : base.duration
+  });
+
+  const nextConfig: AlertConfig = {
+    sub: mergeAction(current.sub, patch.sub),
+    follow: mergeAction(current.follow, patch.follow),
+    raid: mergeAction(current.raid, patch.raid)
+  };
+
+  saveAlertConfig(nextConfig);
+  res.json({ ok: true, config: nextConfig });
+});
+
+app.post("/api/twitch/credentials", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const { client_id, client_secret } = req.body as {
+    client_id?: unknown;
+    client_secret?: unknown;
+  };
+
+  const normalizedClientId = typeof client_id === "string" ? client_id.trim() : "";
+  const normalizedClientSecret = typeof client_secret === "string" ? client_secret.trim() : "";
+
+  if (!normalizedClientId || !normalizedClientSecret) {
+    res.status(400).json({ error: "client_id and client_secret are required" });
+    return;
+  }
+
+  setSetting("twitch_client_id", normalizedClientId);
+  setSetting("twitch_client_secret", normalizedClientSecret);
+
+  res.json({ ok: true });
+});
+
+app.get("/auth/twitch/connect", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  try {
+    const url = buildOAuthUrl();
+    res.redirect(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to start Twitch OAuth";
+    res.status(400).json({ error: message });
+  }
+});
+
+app.get("/auth/twitch/callback", async (req, res) => {
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+
+  if (!code || !state) {
+    res.redirect("/?twitch=error");
+    return;
+  }
+
+  try {
+    await exchangeCode(code, state);
+    await startChatbot(io, getCanvasState, setWidgetProps);
+    await startEventSub(io, getCanvasState);
+    res.redirect("/?twitch=connected");
+  } catch {
+    res.redirect("/?twitch=error");
+  }
+});
+
+app.delete("/api/twitch/disconnect", async (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  clearTwitchConfig();
+  await stopChatbot();
+  stopEventSub();
+  res.json({ ok: true });
+});
+
 app.get("/api/media", (_req, res) => {
   res.json(listMediaItems());
 });
@@ -595,6 +997,32 @@ if (!persistedCanvasState) {
 
 function getActiveScene(state: CanvasState) {
   return state.scenes.find((scene) => scene.id === state.activeSceneId);
+}
+
+function getCanvasState(): CanvasState {
+  return canvasState;
+}
+
+function setWidgetProps(widgetId: string, props: Record<string, unknown>): void {
+  let targetWidget: Widget | null = null;
+  for (const scene of canvasState.scenes) {
+    const widget = scene.widgets.find((candidate) => candidate.id === widgetId);
+    if (widget) {
+      targetWidget = widget;
+      break;
+    }
+  }
+
+  if (!targetWidget) {
+    return;
+  }
+
+  targetWidget.props = {
+    ...targetWidget.props,
+    ...props
+  };
+  saveState("canvas", canvasState);
+  io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
 }
 
 if (isProduction) {
@@ -884,6 +1312,14 @@ io.on("connection", (socket) => {
 
 httpServer.listen(port, () => {
   console.log(`server listening on port ${port}`);
+  void startChatbot(io, getCanvasState, setWidgetProps).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[chatbot] Auto-start failed: ${message}`);
+  });
+  void startEventSub(io, getCanvasState).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[eventsub] Auto-start failed: ${message}`);
+  });
 });
 
 export { app };

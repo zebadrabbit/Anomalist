@@ -12,6 +12,21 @@ Use the WidgetDefinition interface from @anomalist/widget-sdk:
 - renderUrl: URL path used by overlay rendering.
 - settingsSchema: optional JSON Schema for future UI generation.
 
+## Built-in Widget Types
+
+| Type ID | Display Name |
+| --- | --- |
+| `text` | Text |
+| `image` | Image |
+| `timer` | Timer |
+| `counter` | Counter |
+| `marquee` | Marquee |
+| `clock` | Clock |
+| `shape` | Shape |
+| `soundboard` | Soundboard |
+| `chat` | Chat Feed |
+| `custom-html` | Custom HTML |
+
 ## Add A Widget
 
 1. Create an overlay renderer component in apps/overlay/src/lib/widgets.
@@ -50,6 +65,15 @@ registerWidget(myWidget);
 - Accept a single Widget prop.
 - Emit WIDGET_UPDATE immediately when fields change.
 - Keep controls simple and task-focused.
+
+## Socket Events
+
+- `chat:message`: emitted by server for each Twitch chat message.
+Payload shape:
+`{ id, username, color, message, badges, timestamp }`
+- `twitch:alert`: emitted by server when an EventSub event resolves to an alert action.
+Payload shape:
+`{ type, user, viewers?, soundUrl, widgetId, duration }`
 
 ## Submitting A PR
 

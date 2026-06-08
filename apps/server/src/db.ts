@@ -5,60 +5,83 @@ import type { Permission } from "./permissions.js";
 const dbPath = process.env.DB_PATH ?? "./anomalist.db";
 const db = new Database(dbPath);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS canvas_state (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL
-  );
-`);
+function initDb(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canvas_state (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+  `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    passwordHash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'moderator',
-    sessionToken TEXT,
-    sessionExpiresAt TEXT,
-    createdAt TEXT NOT NULL
-  );
-`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      passwordHash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'moderator',
+      sessionToken TEXT,
+      sessionExpiresAt TEXT,
+      createdAt TEXT NOT NULL
+    );
+  `);
 
-const userTableInfo = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
-if (userTableInfo.length > 0) {
-  const existingColumns = new Set(userTableInfo.map((column) => column.name));
-  if (!existingColumns.has("passwordHash")) {
-    db.exec("ALTER TABLE users ADD COLUMN passwordHash TEXT NOT NULL DEFAULT ''");
+  const userTableInfo = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  if (userTableInfo.length > 0) {
+    const existingColumns = new Set(userTableInfo.map((column) => column.name));
+    if (!existingColumns.has("passwordHash")) {
+      db.exec("ALTER TABLE users ADD COLUMN passwordHash TEXT NOT NULL DEFAULT ''");
+    }
+    if (!existingColumns.has("sessionToken")) {
+      db.exec("ALTER TABLE users ADD COLUMN sessionToken TEXT");
+    }
+    if (!existingColumns.has("sessionExpiresAt")) {
+      db.exec("ALTER TABLE users ADD COLUMN sessionExpiresAt TEXT");
+    }
+    if (!existingColumns.has("createdAt")) {
+      db.exec("ALTER TABLE users ADD COLUMN createdAt TEXT NOT NULL DEFAULT ''");
+    }
   }
-  if (!existingColumns.has("sessionToken")) {
-    db.exec("ALTER TABLE users ADD COLUMN sessionToken TEXT");
-  }
-  if (!existingColumns.has("sessionExpiresAt")) {
-    db.exec("ALTER TABLE users ADD COLUMN sessionExpiresAt TEXT");
-  }
-  if (!existingColumns.has("createdAt")) {
-    db.exec("ALTER TABLE users ADD COLUMN createdAt TEXT NOT NULL DEFAULT ''");
-  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      userId TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      granted INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (userId, permission),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS presets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sceneData TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS twitch_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      twitch_user_id TEXT NOT NULL,
+      twitch_login TEXT NOT NULL,
+      twitch_display_name TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+  `);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS user_permissions (
-    userId TEXT NOT NULL,
-    permission TEXT NOT NULL,
-    granted INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (userId, permission),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-  );
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS presets (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    sceneData TEXT NOT NULL,
-    createdAt TEXT NOT NULL
-  );
-`);
+initDb();
 
 const selectStateStmt = db.prepare("SELECT data FROM canvas_state WHERE id = ?");
 const upsertStateStmt = db.prepare(`
@@ -81,6 +104,15 @@ export interface UserPermissionOverrideRow {
   userId: string;
   permission: Permission;
   granted: boolean;
+}
+
+export interface TwitchConfig {
+  twitch_user_id: string;
+  twitch_login: string;
+  twitch_display_name: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
 }
 
 const createUserStmt = db.prepare(`
@@ -161,6 +193,43 @@ const deletePresetStmt = db.prepare(`
   DELETE FROM presets
   WHERE id = ?
 `);
+
+const selectSettingStmt = db.prepare(`
+  SELECT value
+  FROM settings
+  WHERE key = ?
+`);
+const upsertSettingStmt = db.prepare(`
+  INSERT INTO settings (key, value)
+  VALUES (?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value
+`);
+
+const selectTwitchConfigStmt = db.prepare(`
+  SELECT twitch_user_id, twitch_login, twitch_display_name, access_token, refresh_token, expires_at
+  FROM twitch_config
+  WHERE id = 1
+`);
+const upsertTwitchConfigStmt = db.prepare(`
+  INSERT INTO twitch_config (
+    id,
+    twitch_user_id,
+    twitch_login,
+    twitch_display_name,
+    access_token,
+    refresh_token,
+    expires_at
+  )
+  VALUES (1, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    twitch_user_id = excluded.twitch_user_id,
+    twitch_login = excluded.twitch_login,
+    twitch_display_name = excluded.twitch_display_name,
+    access_token = excluded.access_token,
+    refresh_token = excluded.refresh_token,
+    expires_at = excluded.expires_at
+`);
+const clearTwitchConfigStmt = db.prepare("DELETE FROM twitch_config WHERE id = 1");
 
 export function loadState(id: string): CanvasState | null {
   const row = selectStateStmt.get(id) as { data: string } | undefined;
@@ -281,4 +350,33 @@ export function loadPreset(id: string): Scene | null {
 
 export function deletePreset(id: string): void {
   deletePresetStmt.run(id);
+}
+
+export function getSetting(key: string): string | null {
+  const row = selectSettingStmt.get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  upsertSettingStmt.run(key, value);
+}
+
+export function getTwitchConfig(): TwitchConfig | null {
+  const row = selectTwitchConfigStmt.get() as TwitchConfig | undefined;
+  return row ?? null;
+}
+
+export function setTwitchConfig(config: TwitchConfig): void {
+  upsertTwitchConfigStmt.run(
+    config.twitch_user_id,
+    config.twitch_login,
+    config.twitch_display_name,
+    config.access_token,
+    config.refresh_token,
+    config.expires_at
+  );
+}
+
+export function clearTwitchConfig(): void {
+  clearTwitchConfigStmt.run();
 }

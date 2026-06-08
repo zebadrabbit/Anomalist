@@ -1,5 +1,6 @@
 export { counterWidgetDefinition } from "./counter.js";
 export { clockWidgetDefinition } from "./clock.js";
+export { chatWidgetDefinition } from "./chat.js";
 export { imageWidgetDefinition } from "./image.js";
 export { customHtmlWidgetDefinition } from "./customHtml.js";
 export { marqueeWidgetDefinition } from "./marquee.js";

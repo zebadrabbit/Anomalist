@@ -8,14 +8,13 @@ Because it is open-source and self-hosted, your data stays on your server and th
 
 ## Features
 
-- Browser-based dashboard, no installs for mods
-- Visual canvas editor with drag, resize, and rotate
-- Live transforms so OBS reflects movement while you drag
-- Widget library: text, image, timer, counter, marquee, clock, shape, soundboard, custom HTML
-- Media library for images, video, and audio
-- Multi-user auth with roles and per-user permission overrides
-- Scene presets for instant layout switching
-- Self-hosted by default so all data stays on your server
+- **Visual canvas editor** - drag, resize, and rotate widgets in real time
+- **Widget library** - text, image, timer, counter, clock, marquee, shape, soundboard, chat feed, custom HTML
+- **Twitch integration** - chatbot commands, event alerts, stream management
+- **User roles** - owner, editor, moderator with per-user permission overrides
+- **Media library** - host your own images, video, and audio
+- **Scene presets** - save and restore full canvas layouts
+- **Self-hosted** - your data stays on your server, Docker deployment included
 
 ## Quick Start
 

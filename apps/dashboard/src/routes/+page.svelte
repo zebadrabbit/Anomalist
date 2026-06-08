@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { page } from "$app/stores";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
   import type { CanvasState, PresetListItem, SoundEntry, Widget } from "@anomalist/types";
@@ -10,6 +11,8 @@
   import MediaLibrary from "../lib/MediaLibrary.svelte";
   import Toast from "../lib/Toast.svelte";
   import UserManagement from "../lib/UserManagement.svelte";
+  import StreamManager from "../lib/StreamManager.svelte";
+  import TwitchSettings from "../lib/TwitchSettings.svelte";
   import { authStore, checkSetup, logout } from "../lib/stores/auth.js";
   import { addToast } from "../lib/stores/toast.js";
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
@@ -19,10 +22,11 @@
   import MarqueeSettings from "../lib/widgets/MarqueeSettings.svelte";
   import ShapeSettings from "../lib/widgets/ShapeSettings.svelte";
   import SoundboardSettings from "../lib/widgets/SoundboardSettings.svelte";
+  import ChatSettings from "../lib/widgets/ChatSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
   import TimerSettings from "../lib/widgets/TimerSettings.svelte";
 
-  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard" | "custom-html";
+  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard" | "custom-html" | "chat";
   type ViewState = "loading" | "setup" | "login" | "dashboard";
 
   const JOIN_EVENT = "JOIN";
@@ -45,7 +49,17 @@
     clock: { format: "24h", showSeconds: true, timezone: "", fontSize: 48, color: "#ffffff", fontWeight: "bold" },
     shape: { shape: "rectangle", fillColor: "#7c3aed", fillOpacity: 1, borderColor: "transparent", borderWidth: 0, borderOpacity: 1 },
     soundboard: { sounds: [], columns: 3, buttonColor: "#7c3aed", buttonTextColor: "#ffffff" },
-    "custom-html": { html: "<div style='color:white;font-size:24px'>Hello</div>" }
+    "custom-html": { html: "<div style='color:white;font-size:24px'>Hello</div>" },
+    chat: {
+      maxMessages: 10,
+      fontSize: 16,
+      showBadges: true,
+      colorByUser: true,
+      background: "rgba(0,0,0,0.5)",
+      textColor: "#ffffff",
+      messageTimeout: 0,
+      borderRadius: 8
+    }
   };
 
   let socket: Socket | null = null;
@@ -55,6 +69,7 @@
   let selectedWidgetId: string | null = null;
   let selectedMediaUrl = "";
   let activeRightTab: "settings" | "media" = "settings";
+  let activeCenterPanel: "canvas" | "settings" | "stream" = "canvas";
   let showUserManagement = false;
   let editingSceneId: string | null = null;
   let editingSceneName = "";
@@ -77,6 +92,7 @@
   $: canPlaySoundboard = auth.permissions.includes("soundboard.play");
   $: canSceneManage = auth.permissions.includes("scene.manage");
   $: canUserManage = auth.permissions.includes("user.manage");
+  $: canStreamManage = auth.permissions.includes("stream.manage");
   $: canAddCustomHtml = canWidgetAdd && (auth.user?.role === "owner" || auth.user?.role === "editor");
   $: allSoundsFromSoundboards = widgets
     .filter((widget) => widget.type === "soundboard")
@@ -195,7 +211,8 @@
       clock: { width: 320, height: 96 },
       shape: { width: 360, height: 110 },
       soundboard: { width: 500, height: 300 },
-      "custom-html": { width: 520, height: 320 }
+      "custom-html": { width: 520, height: 320 },
+      chat: { width: 440, height: 260 }
     };
 
     const offset = (widgets.length * 36) % 180;
@@ -355,6 +372,19 @@
 
   function openMediaLibrary() {
     activeRightTab = "media";
+    activeCenterPanel = "canvas";
+  }
+
+  function openSettingsPanel() {
+    activeCenterPanel = "settings";
+  }
+
+  function openStreamPanel() {
+    activeCenterPanel = "stream";
+  }
+
+  function openCanvasPanel() {
+    activeCenterPanel = "canvas";
   }
 
   function playSound(sound: SoundEntry) {
@@ -369,6 +399,19 @@
   }
 
   onMount(() => {
+    const twitchStatus = $page.url.searchParams.get("twitch");
+    if (twitchStatus === "connected") {
+      addToast("success", "Twitch connected successfully!");
+    } else if (twitchStatus === "error") {
+      addToast("error", "Twitch connection failed.");
+    }
+
+    if (twitchStatus) {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete("twitch");
+      window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    }
+
     void bootstrapAuth();
     return () => {
       disconnectSocket();
@@ -428,9 +471,17 @@
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("clock")}>Clock</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("shape")}>Shape</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("soundboard")}>Soundboard</button>
+              <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("chat")}>💬 Chat Feed</button>
               {#if canAddCustomHtml}
                 <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("custom-html")}>Custom HTML</button>
               {/if}
+              <button
+                type="button"
+                class={`btn btn-ghost justify-start ${activeCenterPanel === "canvas" ? "btn-active" : ""}`}
+                on:click={openCanvasPanel}
+              >
+                Canvas
+              </button>
             </div>
 
             <div class="divider my-4"></div>
@@ -521,19 +572,55 @@
               <div class="alert alert-info mt-3 p-2 text-xs">{sceneActionMessage}</div>
             {/if}
           </div>
+
+          {#if canStreamManage || canUserManage}
+            <div class="mt-auto border-t border-base-300 p-4">
+              {#if canStreamManage}
+                <button
+                  type="button"
+                  class={`btn btn-ghost mb-2 w-full justify-start ${activeCenterPanel === "stream" ? "btn-active" : ""}`}
+                  on:click={openStreamPanel}
+                >
+                  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+                    <path d="M12 4a1 1 0 0 1 1 1 4 4 0 1 0 4 4 1 1 0 1 1 2 0 6 6 0 1 1-6-6 1 1 0 0 1-1-1Zm-6.36-.78a1 1 0 0 1 1.41 0l2.12 2.12a1 1 0 0 1-1.41 1.41L5.64 4.64a1 1 0 0 1 0-1.42Zm12.73 0a1 1 0 0 1 0 1.42l-2.12 2.12a1 1 0 0 1-1.41-1.41l2.12-2.12a1 1 0 0 1 1.41 0ZM12 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm-7 9a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"/>
+                  </svg>
+                  Stream
+                </button>
+              {/if}
+
+              <button
+                type="button"
+                class={`btn btn-ghost w-full justify-start ${activeCenterPanel === "settings" ? "btn-active" : ""}`}
+                on:click={openSettingsPanel}
+              >
+                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+                  <path
+                    d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.23-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.69 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.05.31-.08.63-.08.94s.03.63.08.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.4 1.05.72 1.63.95l.36 2.53c.04.25.25.43.5.43h3.84c.25 0 .46-.18.5-.43l.36-2.53c.58-.23 1.13-.55 1.63-.95l2.39.96c.23.09.48 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"
+                  />
+                </svg>
+                Settings
+              </button>
+            </div>
+          {/if}
         </aside>
 
         <div class="flex min-w-0 flex-1 items-center justify-center overflow-auto bg-base-100 p-4">
-          {#if $canvasState && socket}
-            <Canvas
-              stagingState={$canvasState}
-              {socket}
-              {selectedWidgetId}
-              canTransform={canWidgetTransform}
-              on:select={handleCanvasSelect}
-            />
+          {#if activeCenterPanel === "settings"}
+            <TwitchSettings />
+          {:else if activeCenterPanel === "stream"}
+            <StreamManager />
           {:else}
-            <span class="loading loading-dots loading-md"></span>
+            {#if $canvasState && socket}
+              <Canvas
+                stagingState={$canvasState}
+                {socket}
+                {selectedWidgetId}
+                canTransform={canWidgetTransform}
+                on:select={handleCanvasSelect}
+              />
+            {:else}
+              <span class="loading loading-dots loading-md"></span>
+            {/if}
           {/if}
         </div>
 
@@ -570,6 +657,8 @@
                     <ShapeSettings widget={selectedWidget} {socket} />
                   {:else if selectedWidget.type === "soundboard"}
                     <SoundboardSettings widget={selectedWidget} {socket} />
+                  {:else if selectedWidget.type === "chat"}
+                    <ChatSettings widget={selectedWidget} {socket} />
                   {:else if selectedWidget.type === "custom-html"}
                     <CustomHtmlSettings widget={selectedWidget} {socket} />
                   {/if}
