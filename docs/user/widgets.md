@@ -5,7 +5,7 @@ Widgets are the building blocks of your overlay. Add them in the dashboard, tune
 ## Quick Workflow
 
 1. Open the dashboard and connect with your owner token.
-2. In Add Widget, choose Text, Image, Timer, or Counter.
+2. In Add Widget, choose Text, Image, Timer, Counter, Marquee, Clock, or Shape.
 3. Click the widget in Staging Widgets to open its settings.
 4. Adjust the settings and watch the preview update.
 5. Click Push to Live to send the changes to your OBS overlay.
@@ -52,6 +52,30 @@ Use it when:
 - You track daily progress during a long stream.
 
 Use the + and - buttons to change the value by the step amount. Use Reset to return to zero.
+
+## Marquee Widget
+
+The Marquee widget scrolls text across the widget space, perfect for persistent announcements.
+
+Great for scrolling sponsor names, social handles, or announcing a giveaway across the bottom of your stream.
+
+You can edit content, direction, speed, size, text color, background color, and pause-on-hover behavior.
+
+## Clock Widget
+
+The Clock widget shows live time and keeps updating while your stream is live.
+
+Show your local time or your viewers' timezone - useful for international communities.
+
+You can switch 12h/24h format, enable or disable seconds, choose from built-in timezone options, and style text size, color, and weight.
+
+## Shape Widget
+
+The Shape widget renders a simple color block that can act as visual structure behind other widgets.
+
+Use a dark rectangle as a backing bar behind your text for better readability.
+
+Pick rectangle, circle, or pill styles and tune fill color, border color, opacity, and border width.
 
 ## Practical Tips
 

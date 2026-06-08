@@ -5,7 +5,10 @@
   import type { CanvasState, Widget, WidgetTransform } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import CounterWidget from "../lib/widgets/CounterWidget.svelte";
+  import ClockWidget from "../lib/widgets/ClockWidget.svelte";
   import ImageWidget from "../lib/widgets/ImageWidget.svelte";
+  import MarqueeWidget from "../lib/widgets/MarqueeWidget.svelte";
+  import ShapeWidget from "../lib/widgets/ShapeWidget.svelte";
   import TextWidget from "../lib/widgets/TextWidget.svelte";
   import TimerWidget from "../lib/widgets/TimerWidget.svelte";
 
@@ -33,6 +36,18 @@
 
     if (widgetType === "counter") {
       return CounterWidget;
+    }
+
+    if (widgetType === "marquee") {
+      return MarqueeWidget;
+    }
+
+    if (widgetType === "clock") {
+      return ClockWidget;
+    }
+
+    if (widgetType === "shape") {
+      return ShapeWidget;
     }
 
     return null;

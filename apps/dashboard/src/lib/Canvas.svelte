@@ -53,6 +53,40 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
+  function asBoolean(value: unknown, fallback: boolean): boolean {
+    return typeof value === "boolean" ? value : fallback;
+  }
+
+  function hexToRgba(hex: string, alpha: number): string {
+    if (hex === "transparent") {
+      return "rgba(0,0,0,0)";
+    }
+
+    const normalized = hex.trim().replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+      return `rgba(255,255,255,${clamp(alpha, 0, 1)})`;
+    }
+
+    const r = Number.parseInt(normalized.slice(0, 2), 16);
+    const g = Number.parseInt(normalized.slice(2, 4), 16);
+    const b = Number.parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${clamp(alpha, 0, 1)})`;
+  }
+
+  function formatClockTime(tickNow: number, use12Hour: boolean, showSeconds: boolean): string {
+    const options: Intl.DateTimeFormatOptions = {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: use12Hour
+    };
+
+    if (showSeconds) {
+      options.second = "2-digit";
+    }
+
+    return new Date(tickNow).toLocaleTimeString("en-US", options);
+  }
+
   function getTimerDisplaySeconds(widget: Widget, tickNow: number): number {
     const isRunning = widget.props.running === true;
     const mode = widget.props.mode === "countdown" ? "countdown" : "stopwatch";
@@ -535,6 +569,31 @@
                 {asNumber(sourceWidget.props.value, 0)}
               </div>
             </div>
+          {:else if sourceWidget.type === "marquee"}
+            {@const direction = asString(sourceWidget.props.direction, "left") === "right" ? "right" : "left"}
+            <div
+              class="preview-text"
+              style={`font-size:${asNumber(sourceWidget.props.fontSize, 24)}px;color:${asString(sourceWidget.props.color, "#ffffff")};`}
+            >
+              {direction === "left" ? "<-" : "->"} {asString(sourceWidget.props.content, "Marquee text")}
+            </div>
+          {:else if sourceWidget.type === "clock"}
+            {@const use12Hour = asString(sourceWidget.props.format, "24h") === "12h"}
+            {@const clockText = formatClockTime(now, use12Hour, asBoolean(sourceWidget.props.showSeconds, true))}
+            <div
+              class="preview-text"
+              style={`font-size:${asNumber(sourceWidget.props.fontSize, 48)}px;color:${asString(sourceWidget.props.color, "#ffffff")};font-weight:${asString(sourceWidget.props.fontWeight, "bold") === "normal" ? "normal" : "bold"};font-variant-numeric:tabular-nums;`}
+            >
+              {clockText}
+            </div>
+          {:else if sourceWidget.type === "shape"}
+            {@const shapeKind = asString(sourceWidget.props.shape, "rectangle")}
+            {@const fill = hexToRgba(asString(sourceWidget.props.fillColor, "#7c3aed"), asNumber(sourceWidget.props.fillOpacity, 1))}
+            {@const border = hexToRgba(asString(sourceWidget.props.borderColor, "transparent"), asNumber(sourceWidget.props.borderOpacity, 1))}
+            {@const borderRadius = shapeKind === "circle" ? "50%" : shapeKind === "pill" ? "999px" : "0px"}
+            <div
+              style={`width:100%;height:100%;background:${fill};border:${Math.max(0, Math.floor(asNumber(sourceWidget.props.borderWidth, 0)))}px solid ${border};box-sizing:border-box;border-radius:${borderRadius};`}
+            ></div>
           {:else}
             <div class="preview-text">{sourceWidget.type}</div>
           {/if}

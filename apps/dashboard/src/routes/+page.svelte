@@ -7,11 +7,14 @@
   import Canvas from "../lib/Canvas.svelte";
   import MediaLibrary from "../lib/MediaLibrary.svelte";
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
+  import ClockSettings from "../lib/widgets/ClockSettings.svelte";
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
+  import MarqueeSettings from "../lib/widgets/MarqueeSettings.svelte";
+  import ShapeSettings from "../lib/widgets/ShapeSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
   import TimerSettings from "../lib/widgets/TimerSettings.svelte";
 
-  type WidgetType = "text" | "image" | "timer" | "counter";
+  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape";
 
   const JOIN_EVENT = "JOIN";
 
@@ -44,6 +47,31 @@
       step: 1,
       fontSize: 32,
       color: "#ffffff"
+    },
+    marquee: {
+      content: "Marquee text",
+      speed: 20,
+      direction: "left",
+      fontSize: 24,
+      color: "#ffffff",
+      backgroundColor: "transparent",
+      pauseOnHover: false
+    },
+    clock: {
+      format: "24h",
+      showSeconds: true,
+      timezone: "",
+      fontSize: 48,
+      color: "#ffffff",
+      fontWeight: "bold"
+    },
+    shape: {
+      shape: "rectangle",
+      fillColor: "#7c3aed",
+      fillOpacity: 1,
+      borderColor: "transparent",
+      borderWidth: 0,
+      borderOpacity: 1
     }
   };
 
@@ -118,7 +146,10 @@
       text: { width: 260, height: 64 },
       image: { width: 320, height: 180 },
       timer: { width: 220, height: 72 },
-      counter: { width: 220, height: 110 }
+      counter: { width: 220, height: 110 },
+      marquee: { width: 600, height: 64 },
+      clock: { width: 320, height: 96 },
+      shape: { width: 360, height: 110 }
     };
 
     // Stagger spawn location so new widgets are not fully stacked.
@@ -288,6 +319,9 @@
           <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("image")}>Photo Image</button>
           <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("timer")}>Clock Timer</button>
           <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("counter")}># Counter</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("marquee")}>Marquee Ticker</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("clock")}>Live Clock</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("shape")}>Shape Block</button>
         </div>
 
         <div class="divider my-4"></div>
@@ -381,6 +415,12 @@
                 <TimerSettings widget={selectedWidget} {socket} />
               {:else if selectedWidget.type === "counter"}
                 <CounterSettings widget={selectedWidget} {socket} />
+              {:else if selectedWidget.type === "marquee"}
+                <MarqueeSettings widget={selectedWidget} {socket} />
+              {:else if selectedWidget.type === "clock"}
+                <ClockSettings widget={selectedWidget} {socket} />
+              {:else if selectedWidget.type === "shape"}
+                <ShapeSettings widget={selectedWidget} {socket} />
               {/if}
 
               <button type="button" class="btn btn-error btn-sm mt-2" on:click={removeSelectedWidget}>Remove Widget</button>
