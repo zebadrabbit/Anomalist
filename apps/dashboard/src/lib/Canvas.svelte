@@ -37,6 +37,7 @@
   let now = Date.now();
   let tickInterval: ReturnType<typeof setInterval>;
   let timerElapsedByWidget: Record<string, number> = {};
+  let timerFallbackStartByWidget: Record<string, number> = {};
 
   const handles: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
@@ -61,16 +62,29 @@
 
     const previousElapsed = timerElapsedByWidget[widget.id] ?? 0;
     let elapsed = previousElapsed;
+    let fallbackStartedAt = timerFallbackStartByWidget[widget.id] ?? 0;
 
     if (resetAt > 0 && !isRunning && startedAt <= 0) {
       elapsed = 0;
+      fallbackStartedAt = 0;
     } else if (isRunning && startedAt > 0) {
       elapsed = Math.max(0, Math.floor((tickNow - startedAt) / 1000));
+      fallbackStartedAt = 0;
+    } else if (isRunning) {
+      // Backward-compatible fallback for clients that still emit running=true without startedAt.
+      if (fallbackStartedAt <= 0) {
+        fallbackStartedAt = tickNow;
+      }
+      elapsed = Math.max(0, Math.floor((tickNow - fallbackStartedAt) / 1000));
     }
 
     timerElapsedByWidget = {
       ...timerElapsedByWidget,
       [widget.id]: elapsed
+    };
+    timerFallbackStartByWidget = {
+      ...timerFallbackStartByWidget,
+      [widget.id]: fallbackStartedAt
     };
 
     if (mode === "countdown") {

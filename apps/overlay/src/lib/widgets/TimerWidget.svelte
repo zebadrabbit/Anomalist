@@ -10,6 +10,7 @@
   }, 250);
   let frozenElapsed = 0;
   let elapsed = 0;
+  let fallbackStartedAt = 0;
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -41,9 +42,18 @@
   $: if (running && startedAt > 0) {
     elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
     frozenElapsed = elapsed;
+    fallbackStartedAt = 0;
+  } else if (running) {
+    // Backward-compatible fallback for clients that emit running=true without startedAt.
+    if (fallbackStartedAt <= 0) {
+      fallbackStartedAt = now;
+    }
+    elapsed = Math.max(0, Math.floor((now - fallbackStartedAt) / 1000));
+    frozenElapsed = elapsed;
   } else {
     if (resetAt > 0 && startedAt <= 0) {
       frozenElapsed = 0;
+      fallbackStartedAt = 0;
     }
     elapsed = frozenElapsed;
   }
