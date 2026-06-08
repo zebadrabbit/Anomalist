@@ -1,21 +1,45 @@
 # Anomalist
 
-Self-hosted stream overlay control for OBS.
+Self-hosted, open-source stream overlay control for OBS
 
-Anomalist lets streamers run their own real-time overlay control stack while giving moderators a remote dashboard to manage scenes, layers, and widgets during a live broadcast. The system is open source and self-hosted, so communities can customize and operate it on their own infrastructure.
+Anomalist is a real-time overlay control system for streamers who want full ownership of their stack.
+It is built for owners, editors, and moderators to run overlays from the browser while OBS displays the result live.
+Because it is open-source and self-hosted, your data stays on your server and the platform is easy for the community to extend.
+
+## Features
+
+- Browser-based dashboard, no installs for mods
+- Visual canvas editor with drag, resize, and rotate
+- Live transforms so OBS reflects movement while you drag
+- Widget library: text, image, timer, counter, marquee, clock, shape, soundboard, custom HTML
+- Media library for images, video, and audio
+- Multi-user auth with roles and per-user permission overrides
+- Scene presets for instant layout switching
+- Self-hosted by default so all data stays on your server
 
 ## Quick Start
 
-1. Clone the repository.
-2. Install dependencies: `npm install`
-3. Start development: `npm run dev`
+Prerequisites: Docker, OBS Studio
 
-## How It Works
+```bash
+git clone https://github.com/zebadrabbit/Anomalist.git
+cd Anomalist
+docker compose up -d
+```
 
-The OBS browser source loads the overlay app, which syncs in real time with the server over WebSockets. Moderators use the dashboard to control state and push changes to the live overlay.
+Then open http://localhost:3001
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+## Documentation
+
+- User guide: [docs/user/getting-started.md](docs/user/getting-started.md)
+- Developer architecture: [docs/developer/architecture.md](docs/developer/architecture.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+New widgets are especially welcome - see the widget SDK docs.
 
 ## License
 
-MIT
+MIT - Anomalist Contributors

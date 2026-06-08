@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { CanvasState } from "@anomalist/types";
+import type { CanvasState, Scene } from "@anomalist/types";
 import type { Permission } from "./permissions.js";
 
 const dbPath = process.env.DB_PATH ?? "./anomalist.db";
@@ -48,6 +48,15 @@ db.exec(`
     granted INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (userId, permission),
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS presets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    sceneData TEXT NOT NULL,
+    createdAt TEXT NOT NULL
   );
 `);
 
@@ -132,6 +141,25 @@ const deleteUserPermissionOverrideStmt = db.prepare(`
 const clearUserPermissionOverridesStmt = db.prepare(`
   DELETE FROM user_permissions
   WHERE userId = ?
+`);
+
+const savePresetStmt = db.prepare(`
+  INSERT INTO presets (id, name, sceneData, createdAt)
+  VALUES (?, ?, ?, ?)
+`);
+const listPresetsStmt = db.prepare(`
+  SELECT id, name, createdAt
+  FROM presets
+  ORDER BY createdAt DESC
+`);
+const loadPresetStmt = db.prepare(`
+  SELECT sceneData
+  FROM presets
+  WHERE id = ?
+`);
+const deletePresetStmt = db.prepare(`
+  DELETE FROM presets
+  WHERE id = ?
 `);
 
 export function loadState(id: string): CanvasState | null {
@@ -232,4 +260,25 @@ export function removeUserPermissionOverride(userId: string, permission: Permiss
 
 export function clearUserPermissionOverrides(userId: string): void {
   clearUserPermissionOverridesStmt.run(userId);
+}
+
+export function savePreset(id: string, name: string, sceneData: Scene): void {
+  savePresetStmt.run(id, name, JSON.stringify(sceneData), new Date().toISOString());
+}
+
+export function listPresets(): Array<{ id: string; name: string; createdAt: string }> {
+  return listPresetsStmt.all() as Array<{ id: string; name: string; createdAt: string }>;
+}
+
+export function loadPreset(id: string): Scene | null {
+  const row = loadPresetStmt.get(id) as { sceneData: string } | undefined;
+  if (!row) {
+    return null;
+  }
+
+  return JSON.parse(row.sceneData) as Scene;
+}
+
+export function deletePreset(id: string): void {
+  deletePresetStmt.run(id);
 }

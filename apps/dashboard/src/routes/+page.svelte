@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, SoundEntry, Widget } from "@anomalist/types";
+  import type { CanvasState, PresetListItem, SoundEntry, Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import Canvas from "../lib/Canvas.svelte";
   import FirstRunSetup from "../lib/FirstRunSetup.svelte";
@@ -15,13 +15,14 @@
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
   import ClockSettings from "../lib/widgets/ClockSettings.svelte";
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
+  import CustomHtmlSettings from "../lib/widgets/CustomHtmlSettings.svelte";
   import MarqueeSettings from "../lib/widgets/MarqueeSettings.svelte";
   import ShapeSettings from "../lib/widgets/ShapeSettings.svelte";
   import SoundboardSettings from "../lib/widgets/SoundboardSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
   import TimerSettings from "../lib/widgets/TimerSettings.svelte";
 
-  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard";
+  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard" | "custom-html";
   type ViewState = "loading" | "setup" | "login" | "dashboard";
 
   const JOIN_EVENT = "JOIN";
@@ -43,7 +44,8 @@
     },
     clock: { format: "24h", showSeconds: true, timezone: "", fontSize: 48, color: "#ffffff", fontWeight: "bold" },
     shape: { shape: "rectangle", fillColor: "#7c3aed", fillOpacity: 1, borderColor: "transparent", borderWidth: 0, borderOpacity: 1 },
-    soundboard: { sounds: [], columns: 3, buttonColor: "#7c3aed", buttonTextColor: "#ffffff" }
+    soundboard: { sounds: [], columns: 3, buttonColor: "#7c3aed", buttonTextColor: "#ffffff" },
+    "custom-html": { html: "<div style='color:white;font-size:24px'>Hello</div>" }
   };
 
   let socket: Socket | null = null;
@@ -57,6 +59,10 @@
   let editingSceneId: string | null = null;
   let editingSceneName = "";
   let sceneActionMessage = "";
+  let presets: PresetListItem[] = [];
+  let presetNameInput = "";
+  let showPresetInput = false;
+  let hasRequestedPresets = false;
 
   $: auth = $authStore;
   $: activeScene = $canvasState?.scenes.find((scene) => scene.id === $canvasState.activeSceneId);
@@ -71,6 +77,7 @@
   $: canPlaySoundboard = auth.permissions.includes("soundboard.play");
   $: canSceneManage = auth.permissions.includes("scene.manage");
   $: canUserManage = auth.permissions.includes("user.manage");
+  $: canAddCustomHtml = canWidgetAdd && (auth.user?.role === "owner" || auth.user?.role === "editor");
   $: allSoundsFromSoundboards = widgets
     .filter((widget) => widget.type === "soundboard")
     .flatMap((widget) => {
@@ -102,6 +109,8 @@
 
   function connectSocket(token: string) {
     disconnectSocket();
+    hasRequestedPresets = false;
+    presets = [];
     socket = io(window.location.origin);
 
     socket.on("connect", () => {
@@ -112,6 +121,8 @@
 
     socket.on("disconnect", () => {
       isConnected = false;
+      hasRequestedPresets = false;
+      presets = [];
     });
 
     socket.on(SocketEvents.AUTH_SUCCESS, () => {
@@ -130,6 +141,14 @@
 
     socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
       canvasState.set(nextState);
+      if (!hasRequestedPresets) {
+        socket?.emit(SocketEvents.PRESET_LIST);
+        hasRequestedPresets = true;
+      }
+    });
+
+    socket.on(SocketEvents.PRESET_LIST, (nextPresets: PresetListItem[]) => {
+      presets = Array.isArray(nextPresets) ? nextPresets : [];
     });
   }
 
@@ -175,7 +194,8 @@
       marquee: { width: 600, height: 64 },
       clock: { width: 320, height: 96 },
       shape: { width: 360, height: 110 },
-      soundboard: { width: 500, height: 300 }
+      soundboard: { width: 500, height: 300 },
+      "custom-html": { width: 520, height: 320 }
     };
 
     const offset = (widgets.length * 36) % 180;
@@ -272,6 +292,54 @@
     sceneActionMessage = "Add scene UI is available, but server-side scene creation is not implemented yet.";
   }
 
+  function saveCurrentPreset() {
+    if (!socket || !canSceneManage) {
+      return;
+    }
+
+    const name = presetNameInput.trim();
+    if (!name) {
+      return;
+    }
+
+    socket.emit(SocketEvents.PRESET_SAVE, { name });
+    presetNameInput = "";
+    showPresetInput = false;
+  }
+
+  function loadPreset(presetId: string) {
+    if (!socket || !canSceneManage) {
+      return;
+    }
+
+    if (!window.confirm("This will replace your current scene widgets. Continue?")) {
+      return;
+    }
+
+    socket.emit(SocketEvents.PRESET_LOAD, { id: presetId });
+  }
+
+  function deletePreset(presetId: string) {
+    if (!socket || !canSceneManage) {
+      return;
+    }
+
+    socket.emit(SocketEvents.PRESET_DELETE, { id: presetId });
+  }
+
+  function formatPresetDate(value: string): string {
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      return "Unknown date";
+    }
+
+    return new Date(parsed).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
+  }
+
   function handleMediaSelect(url: string) {
     selectedMediaUrl = url;
 
@@ -360,6 +428,9 @@
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("clock")}>Clock</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("shape")}>Shape</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("soundboard")}>Soundboard</button>
+              {#if canAddCustomHtml}
+                <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("custom-html")}>Custom HTML</button>
+              {/if}
             </div>
 
             <div class="divider my-4"></div>
@@ -399,6 +470,52 @@
                 </div>
               {/each}
             </div>
+
+            {#if canSceneManage}
+              <div class="mt-4 border-t border-base-300 pt-4">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Presets</p>
+                {#if showPresetInput}
+                  <div class="mb-2 flex items-center gap-2">
+                    <input
+                      class="input input-bordered input-sm w-full"
+                      placeholder="Preset name"
+                      bind:value={presetNameInput}
+                      on:keydown={(event) => event.key === "Enter" && saveCurrentPreset()}
+                    />
+                    <button type="button" class="btn btn-xs btn-primary" on:click={saveCurrentPreset}>OK</button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      on:click={() => {
+                        showPresetInput = false;
+                        presetNameInput = "";
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                {:else}
+                  <button type="button" class="btn btn-sm btn-outline mb-2 w-full" on:click={() => (showPresetInput = true)}>Save Current</button>
+                {/if}
+
+                {#if presets.length === 0}
+                  <p class="text-sm text-base-content/70">No presets saved yet.</p>
+                {:else}
+                  <div class="flex flex-col gap-2">
+                    {#each presets as preset (preset.id)}
+                      <div class="rounded-lg border border-base-300 p-2">
+                        <div class="text-sm font-medium">{preset.name}</div>
+                        <div class="mb-2 text-xs text-base-content/60">{formatPresetDate(preset.createdAt)}</div>
+                        <div class="flex gap-2">
+                          <button type="button" class="btn btn-xs btn-primary" on:click={() => loadPreset(preset.id)}>Load</button>
+                          <button type="button" class="btn btn-xs btn-error" on:click={() => deletePreset(preset.id)}>Delete</button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/if}
 
             {#if sceneActionMessage}
               <div class="alert alert-info mt-3 p-2 text-xs">{sceneActionMessage}</div>
@@ -453,6 +570,8 @@
                     <ShapeSettings widget={selectedWidget} {socket} />
                   {:else if selectedWidget.type === "soundboard"}
                     <SoundboardSettings widget={selectedWidget} {socket} />
+                  {:else if selectedWidget.type === "custom-html"}
+                    <CustomHtmlSettings widget={selectedWidget} {socket} />
                   {/if}
                 {:else}
                   <div class="alert alert-warning text-sm">You can view widgets, but do not have permission to edit widget settings.</div>

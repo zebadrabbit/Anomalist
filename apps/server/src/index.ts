@@ -15,13 +15,17 @@ import {
   countOwners,
   countUsers,
   createUser,
+  deletePreset,
   deleteUser,
   getUserById,
   getUserBySessionToken,
   getUserByUsername,
   getUserPermissionOverrides,
+  listPresets,
   listUsers,
+  loadPreset,
   loadState,
+  savePreset,
   removeUserPermissionOverride,
   saveState,
   setSessionToken,
@@ -647,6 +651,15 @@ function isVisibilityOnlyUpdate(incomingWidget: Widget | WidgetUpdate): boolean 
   );
 }
 
+function emitPresetListToDashboards(): void {
+  const payload = listPresets();
+  for (const client of io.sockets.sockets.values()) {
+    if (client.data?.clientType === "dashboard") {
+      client.emit(SocketEvents.PRESET_LIST, payload);
+    }
+  }
+}
+
 io.on("connection", (socket) => {
   console.log("client connected");
 
@@ -694,8 +707,18 @@ io.on("connection", (socket) => {
     socket.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
+  socket.on(SocketEvents.USER_JOIN, () => {
+    socket.data.clientType = "dashboard";
+  });
+
   socket.on(SocketEvents.WIDGET_ADD, (widget: Widget) => {
     if (!can(socket, Permissions.WIDGET_ADD)) {
+      denyPermission(socket, SocketEvents.WIDGET_ADD, Permissions.WIDGET_ADD);
+      return;
+    }
+
+    const role = (socket.data?.user as UserRow | undefined)?.role;
+    if (widget.type === "custom-html" && role === "moderator") {
       denyPermission(socket, SocketEvents.WIDGET_ADD, Permissions.WIDGET_ADD);
       return;
     }
@@ -798,6 +821,64 @@ io.on("connection", (socket) => {
 
     const volume = Math.min(1, Math.max(0, Number.isFinite(data.volume) ? data.volume : 1));
     io.emit(SocketEvents.PLAY_SOUND, { url: data.url, volume });
+  });
+
+  socket.on(SocketEvents.PRESET_SAVE, (payload: { name?: string }) => {
+    if (!can(socket, Permissions.SCENE_MANAGE)) {
+      denyPermission(socket, SocketEvents.PRESET_SAVE, Permissions.SCENE_MANAGE);
+      return;
+    }
+
+    const activeScene = getActiveScene(canvasState);
+    const name = typeof payload?.name === "string" ? payload.name.trim() : "";
+    if (!activeScene || !name) {
+      return;
+    }
+
+    savePreset(randomUUID(), name, activeScene);
+    emitPresetListToDashboards();
+  });
+
+  socket.on(SocketEvents.PRESET_LOAD, (payload: { id?: string }) => {
+    if (!can(socket, Permissions.SCENE_MANAGE)) {
+      denyPermission(socket, SocketEvents.PRESET_LOAD, Permissions.SCENE_MANAGE);
+      return;
+    }
+
+    const presetId = typeof payload?.id === "string" ? payload.id : "";
+    if (!presetId) {
+      return;
+    }
+
+    const preset = loadPreset(presetId);
+    const activeScene = getActiveScene(canvasState);
+    if (!preset || !activeScene) {
+      return;
+    }
+
+    activeScene.widgets = JSON.parse(JSON.stringify(preset.widgets)) as Widget[];
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    emitPresetListToDashboards();
+  });
+
+  socket.on(SocketEvents.PRESET_DELETE, (payload: { id?: string }) => {
+    if (!can(socket, Permissions.SCENE_MANAGE)) {
+      denyPermission(socket, SocketEvents.PRESET_DELETE, Permissions.SCENE_MANAGE);
+      return;
+    }
+
+    const presetId = typeof payload?.id === "string" ? payload.id : "";
+    if (!presetId) {
+      return;
+    }
+
+    deletePreset(presetId);
+    emitPresetListToDashboards();
+  });
+
+  socket.on(SocketEvents.PRESET_LIST, () => {
+    socket.emit(SocketEvents.PRESET_LIST, listPresets());
   });
 });
 

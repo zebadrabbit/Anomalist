@@ -6,6 +6,7 @@
   import { SocketEvents } from "@anomalist/types";
   import CounterWidget from "../lib/widgets/CounterWidget.svelte";
   import ClockWidget from "../lib/widgets/ClockWidget.svelte";
+  import CustomHtmlWidget from "../lib/widgets/CustomHtmlWidget.svelte";
   import ImageWidget from "../lib/widgets/ImageWidget.svelte";
   import MarqueeWidget from "../lib/widgets/MarqueeWidget.svelte";
   import ShapeWidget from "../lib/widgets/ShapeWidget.svelte";
@@ -46,6 +47,10 @@
 
     if (widgetType === "clock") {
       return ClockWidget;
+    }
+
+    if (widgetType === "custom-html") {
+      return CustomHtmlWidget;
     }
 
     if (widgetType === "shape") {

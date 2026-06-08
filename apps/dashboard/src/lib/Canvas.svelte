@@ -641,6 +641,11 @@
               <div style="font-size:1.8rem;line-height:1;">speaker</div>
               <div class="preview-text">Soundboard</div>
             </div>
+          {:else if sourceWidget.type === "custom-html"}
+            <div class="preview-stack">
+              <div style="font-size:1.5rem;line-height:1;">&lt;/&gt;</div>
+              <div class="preview-text">Custom HTML</div>
+            </div>
           {:else}
             <div class="preview-text">{sourceWidget.type}</div>
           {/if}

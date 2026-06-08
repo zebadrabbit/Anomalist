@@ -1,64 +1,64 @@
 # Getting Started
 
-You can run Anomalist on your own machine with Docker in just a few minutes.
+## What is Anomalist?
 
-## What You Need
+Anomalist is a self-hosted overlay control system for OBS.
+You run it on your own machine or server, then trusted mods control overlays from any web browser while you focus on streaming.
 
-- Docker Desktop installed and running.
-- This Anomalist project folder.
-- About 5 to 10 minutes.
+## What you need
 
-## Install and Start
+- A computer to host it (or a home server)
+- Docker Desktop
+- OBS Studio
+- A web browser
 
-1. Open the project folder.
-2. Create a file named .env in the project root.
-3. Add your owner token to that file:
+That is it.
 
-```env
-OWNER_TOKEN=pick-a-strong-token-you-will-remember
-```
+## Installation
 
-4. Start Anomalist:
+### Step 1: Download Anomalist
 
 ```bash
-docker compose up --build
+git clone https://github.com/zebadrabbit/Anomalist.git
+cd Anomalist
 ```
 
-5. Wait until you see logs that the server is listening on port 3001.
+### Step 2: Set your owner token
 
-That is it. Anomalist is now running.
+Copy apps/server/.env.example to apps/server/.env.
 
-## Add to OBS
+Note: token is now replaced by your owner account - leave OWNER_TOKEN as-is, you will create your account in the browser.
 
-1. In OBS, add a Browser Source.
+### Step 3: Start it
+
+```bash
+docker compose up -d
+```
+
+### Step 4: Open the dashboard
+
+Open http://localhost:3001
+
+Create your owner account on first run.
+
+## Adding it to OBS
+
+1. Add Source -> Browser
 2. URL: http://localhost:3001/overlay
 3. Width: 1920
 4. Height: 1080
-5. Click OK.
+5. Check "Shutdown source when not visible"
+6. Uncheck "Refresh browser when scene becomes active"
 
-Your overlay is now connected.
+## Your first overlay
 
-## Log In to the Dashboard
+1. Add a text widget.
+2. Type your message.
+3. Drag it into position on the canvas.
+4. Click the eye icon to show it.
 
-1. Open http://localhost:3001/ in your browser.
-2. Enter the same token from your .env file.
-3. Click Connect.
+You should see it appear in OBS immediately.
 
-## Your First Overlay
+## Giving mods access
 
-1. In the dashboard, click Text under Add Widget.
-2. Select the widget in the list.
-3. Change the content to what you want on stream.
-4. Click Push to Live.
-
-You should immediately see the text in OBS.
-
-## Stopping Anomalist
-
-When you are done streaming, stop it with:
-
-```bash
-docker compose down
-```
-
-Your saved data stays on disk and will be there next time.
+Open User Management (gear icon), create a moderator account, then share the dashboard URL and their login.

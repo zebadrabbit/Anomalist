@@ -91,6 +91,24 @@ How to use it:
 OBS audio note:
 When your overlay is loaded as a browser source, OBS captures these sound plays automatically from the browser source audio output.
 
+## Custom HTML Widget
+
+The Custom HTML widget lets you paste your own HTML, CSS, and JavaScript snippets into a widget-sized frame.
+
+This is useful for:
+- Custom animations you want to design yourself.
+- Third-party widget snippets.
+- Data tickers and other embedded mini-apps.
+
+Safety model (plain language):
+- Your code runs inside a sandboxed iframe, not in the dashboard itself.
+- That frame cannot directly reach your dashboard session, cookies, or local storage.
+- You should still only paste code you wrote yourself or fully trust.
+
+Access:
+- This widget is available to owner and editor roles only.
+- Moderators cannot add Custom HTML widgets.
+
 ## Practical Tips
 
 - Keep widgets in staging while you test placements and colors.

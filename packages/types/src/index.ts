@@ -58,12 +58,22 @@ export interface SoundPlay {
   volume: number;
 }
 
+export interface PresetListItem {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
   AUTH_SUCCESS: "auth:success",
   CANVAS_UPDATE: "CANVAS_UPDATE",
   PERMISSION_DENIED: "permission:denied",
   PLAY_SOUND: "sound:play",
+  PRESET_DELETE: "preset:delete",
+  PRESET_LIST: "preset:list",
+  PRESET_LOAD: "preset:load",
+  PRESET_SAVE: "preset:save",
   WIDGET_TRANSFORM: "widget:transform",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",
