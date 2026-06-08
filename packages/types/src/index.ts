@@ -42,12 +42,15 @@ export interface CanvasState {
 export interface User {
   id: string;
   username: string;
-  role: "owner" | "moderator";
+  role: "owner" | "editor" | "moderator";
+  permissions?: string[];
 }
 
 export const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
+  AUTH_SUCCESS: "auth:success",
   CANVAS_UPDATE: "CANVAS_UPDATE",
+  PERMISSION_DENIED: "permission:denied",
   WIDGET_TRANSFORM: "widget:transform",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",

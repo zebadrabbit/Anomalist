@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import bcrypt from "bcrypt";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -8,33 +9,63 @@ import path from "node:path";
 import { Server } from "socket.io";
 import multer from "multer";
 import type { CanvasState, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
-import { loadState, saveState } from "./db.js";
+import { SocketEvents } from "@anomalist/types";
+import {
+  clearSessionToken,
+  countOwners,
+  countUsers,
+  createUser,
+  deleteUser,
+  getUserById,
+  getUserBySessionToken,
+  getUserByUsername,
+  getUserPermissionOverrides,
+  listUsers,
+  loadState,
+  removeUserPermissionOverride,
+  saveState,
+  setSessionToken,
+  setUserPermissionOverride,
+  updateUserPassword,
+  updateUserRole,
+  type UserPermissionOverrideRow,
+  type UserRow
+} from "./db.js";
 import { MEDIA_DIR, deleteMediaItem, listMediaItems, saveMediaItem } from "./media.js";
+import {
+  Permissions,
+  getRolePermissions,
+  listAllPermissions,
+  resolvePermission,
+  type Permission
+} from "./permissions.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
-const SocketEvents = {
-  AUTH_ERROR: "AUTH_ERROR",
-  CANVAS_UPDATE: "CANVAS_UPDATE",
-  WIDGET_TRANSFORM: "widget:transform",
-  WIDGET_ADD: "WIDGET_ADD",
-  WIDGET_REMOVE: "WIDGET_REMOVE",
-  WIDGET_UPDATE: "WIDGET_UPDATE",
-  SCENE_CHANGE: "SCENE_CHANGE"
-} as const;
+const PLAY_SOUND_EVENT = "PLAY_SOUND";
+const OWNER_TOKEN_FALLBACK_USER_ID = "owner-token-fallback";
+
 const configuredOwnerToken = process.env.OWNER_TOKEN;
-const ownerToken =
-  configuredOwnerToken && configuredOwnerToken !== "change-me" ? configuredOwnerToken : randomUUID();
+const hasConfiguredOwnerToken = !!configuredOwnerToken && configuredOwnerToken !== "change-me";
+const SESSION_HOURS = Number(process.env.SESSION_HOURS ?? 24);
 const isProduction = process.env.NODE_ENV === "production";
+const failedLoginAttemptsByIp = new Map<string, number[]>();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-if (!configuredOwnerToken || configuredOwnerToken === "change-me") {
-  console.log(
-    `WARNING: No OWNER_TOKEN set in .env — using temporary token for this session only: ${ownerToken}`
-  );
-  console.log("Set OWNER_TOKEN in apps/server/.env to make it permanent.");
+const initialUserCount = countUsers();
+if (hasConfiguredOwnerToken) {
+  if (initialUserCount === 0) {
+    console.log(
+      "No users found. Use OWNER_TOKEN temporarily or visit the dashboard to complete first-run setup."
+    );
+  } else {
+    console.log(
+      "OWNER_TOKEN is set but user accounts exist. OWNER_TOKEN is ignored — please log in with your account."
+    );
+  }
 }
 
 function createDefaultState(): CanvasState {
@@ -79,7 +110,433 @@ const upload = multer({
   })
 });
 
+app.use(express.json());
+
+function isRole(value: string): value is "owner" | "editor" | "moderator" {
+  return value === "owner" || value === "editor" || value === "moderator";
+}
+
+function isValidUsername(username: string): boolean {
+  return /^[A-Za-z0-9_]{3,32}$/.test(username);
+}
+
+function isValidPassword(password: string): boolean {
+  return password.length >= 8;
+}
+
+function getRequesterIp(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function pruneFailedAttempts(ip: string): number[] {
+  const now = Date.now();
+  const windowStart = now - 15 * 60 * 1000;
+  const attempts = (failedLoginAttemptsByIp.get(ip) ?? []).filter((timestamp) => timestamp >= windowStart);
+  failedLoginAttemptsByIp.set(ip, attempts);
+  return attempts;
+}
+
+function pushFailedAttempt(ip: string): void {
+  const attempts = pruneFailedAttempts(ip);
+  attempts.push(Date.now());
+  failedLoginAttemptsByIp.set(ip, attempts);
+}
+
+function clearFailedAttempts(ip: string): void {
+  failedLoginAttemptsByIp.delete(ip);
+}
+
+function buildUserResponse(user: UserRow) {
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role
+  };
+}
+
+function toPermissionOverrides(overrides: UserPermissionOverrideRow[]) {
+  return overrides.map((override) => ({
+    permission: override.permission,
+    granted: override.granted
+  }));
+}
+
+function getEffectivePermissions(role: string, overrides: UserPermissionOverrideRow[]): Permission[] {
+  return listAllPermissions().filter((permission) =>
+    resolvePermission(role, permission, toPermissionOverrides(overrides))
+  );
+}
+
+function getAuthToken(req: express.Request): string | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = header.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : null;
+}
+
+function extractAuthUser(req: express.Request): UserRow | null {
+  const token = getAuthToken(req);
+  if (!token) {
+    return null;
+  }
+
+  const user = getUserBySessionToken(token);
+  if (!user) {
+    return null;
+  }
+
+  if (!user.sessionExpiresAt) {
+    clearSessionToken(user.id);
+    return null;
+  }
+
+  const expiresAtMs = Date.parse(user.sessionExpiresAt);
+  if (Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now()) {
+    clearSessionToken(user.id);
+    return null;
+  }
+
+  return user;
+}
+
+function requirePermission(
+  req: express.Request,
+  res: express.Response,
+  permission: Permission
+): { user: UserRow; overrides: UserPermissionOverrideRow[] } | null {
+  const user = extractAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+
+  const overrides = getUserPermissionOverrides(user.id);
+  if (!resolvePermission(user.role, permission, toPermissionOverrides(overrides))) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+
+  return { user, overrides };
+}
+
 app.use("/media", express.static(MEDIA_DIR));
+
+app.get("/api/auth/status", (_req, res) => {
+  res.json({ setup: countUsers() === 0 });
+});
+
+app.post("/api/auth/setup", async (req, res) => {
+  if (countUsers() > 0) {
+    res.status(403).json({ error: "Setup already completed" });
+    return;
+  }
+
+  const { username, password } = req.body as { username?: unknown; password?: unknown };
+  const normalizedUsername = typeof username === "string" ? username.trim() : "";
+  const normalizedPassword = typeof password === "string" ? password : "";
+
+  if (!isValidUsername(normalizedUsername)) {
+    res.status(400).json({ error: "Username must be 3-32 characters (letters, numbers, underscore)" });
+    return;
+  }
+
+  if (!isValidPassword(normalizedPassword)) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+
+  if (getUserByUsername(normalizedUsername)) {
+    res.status(409).json({ error: "Username already exists" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(normalizedPassword, 12);
+  createUser(randomUUID(), normalizedUsername, passwordHash, "owner");
+
+  res.json({ message: "Owner account created" });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const ip = getRequesterIp(req);
+  const attempts = pruneFailedAttempts(ip);
+  if (attempts.length >= 10) {
+    res.status(429).json({ error: "Too many failed login attempts. Try again later." });
+    return;
+  }
+
+  const { username, password } = req.body as { username?: unknown; password?: unknown };
+  const normalizedUsername = typeof username === "string" ? username.trim() : "";
+  const normalizedPassword = typeof password === "string" ? password : "";
+
+  const user = getUserByUsername(normalizedUsername);
+  const validPassword = user ? await bcrypt.compare(normalizedPassword, user.passwordHash) : false;
+  if (!user || !validPassword) {
+    pushFailedAttempt(ip);
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  clearFailedAttempts(ip);
+
+  const token = randomUUID();
+  const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();
+  setSessionToken(user.id, token, expiresAt);
+
+  res.json({ token, user: buildUserResponse(user) });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const user = extractAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  clearSessionToken(user.id);
+  res.status(200).json({ ok: true });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const user = extractAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const overrides = getUserPermissionOverrides(user.id);
+  const permissions = getEffectivePermissions(user.role, overrides);
+
+  res.json({
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    permissions
+  });
+});
+
+app.get("/api/users", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const users = listUsers().map((user) => ({
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    createdAt: user.createdAt,
+    overrides: toPermissionOverrides(getUserPermissionOverrides(user.id))
+  }));
+
+  res.json(users);
+});
+
+app.post("/api/users", async (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const { username, password, role } = req.body as {
+    username?: unknown;
+    password?: unknown;
+    role?: unknown;
+  };
+
+  const normalizedUsername = typeof username === "string" ? username.trim() : "";
+  const normalizedPassword = typeof password === "string" ? password : "";
+  const normalizedRole = typeof role === "string" ? role : "";
+
+  if (!isValidUsername(normalizedUsername)) {
+    res.status(400).json({ error: "Invalid username" });
+    return;
+  }
+
+  if (!isValidPassword(normalizedPassword)) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+
+  if (!isRole(normalizedRole)) {
+    res.status(400).json({ error: "Invalid role" });
+    return;
+  }
+
+  if (getUserByUsername(normalizedUsername)) {
+    res.status(409).json({ error: "Username already exists" });
+    return;
+  }
+
+  const userId = randomUUID();
+  const passwordHash = await bcrypt.hash(normalizedPassword, 12);
+  createUser(userId, normalizedUsername, passwordHash, normalizedRole);
+
+  const user = getUserById(userId);
+  res.status(201).json({
+    id: userId,
+    username: normalizedUsername,
+    role: normalizedRole,
+    createdAt: user?.createdAt ?? new Date().toISOString(),
+    overrides: []
+  });
+});
+
+app.patch("/api/users/:id", async (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const user = getUserById(req.params.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const { role, password } = req.body as { role?: unknown; password?: unknown };
+  const nextRole = typeof role === "string" ? role : null;
+  const nextPassword = typeof password === "string" ? password : null;
+
+  if (!nextRole && !nextPassword) {
+    res.status(400).json({ error: "Nothing to update" });
+    return;
+  }
+
+  if (nextRole) {
+    if (!isRole(nextRole)) {
+      res.status(400).json({ error: "Invalid role" });
+      return;
+    }
+
+    if (user.role === "owner" && nextRole !== "owner" && countOwners() <= 1) {
+      res.status(400).json({ error: "Cannot demote the only owner account" });
+      return;
+    }
+
+    updateUserRole(user.id, nextRole);
+  }
+
+  if (nextPassword) {
+    if (!isValidPassword(nextPassword)) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(nextPassword, 12);
+    updateUserPassword(user.id, passwordHash);
+  }
+
+  const updatedUser = getUserById(user.id);
+  res.json({
+    id: updatedUser?.id ?? user.id,
+    username: updatedUser?.username ?? user.username,
+    role: updatedUser?.role ?? user.role,
+    createdAt: updatedUser?.createdAt ?? user.createdAt,
+    overrides: toPermissionOverrides(getUserPermissionOverrides(user.id))
+  });
+});
+
+app.delete("/api/users/:id", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const user = getUserById(req.params.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.role === "owner" && countOwners() <= 1) {
+    res.status(400).json({ error: "Cannot delete the only owner account" });
+    return;
+  }
+
+  deleteUser(user.id);
+  res.status(200).json({ ok: true });
+});
+
+app.get("/api/users/:id/permissions", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const user = getUserById(req.params.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const overrides = getUserPermissionOverrides(user.id);
+  const overrideMap = new Map(overrides.map((entry) => [entry.permission, entry.granted]));
+  const items = listAllPermissions().map((permission) => ({
+    permission,
+    granted: resolvePermission(user.role, permission, toPermissionOverrides(overrides)),
+    overridden: overrideMap.has(permission)
+  }));
+
+  res.json(items);
+});
+
+app.put("/api/users/:id/permissions/:permission", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const user = getUserById(req.params.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const permission = req.params.permission as Permission;
+  if (!listAllPermissions().includes(permission)) {
+    res.status(400).json({ error: "Unknown permission" });
+    return;
+  }
+
+  const { granted } = req.body as { granted?: unknown };
+  if (typeof granted !== "boolean") {
+    res.status(400).json({ error: "granted must be a boolean" });
+    return;
+  }
+
+  if (user.role === "owner" && permission === Permissions.USER_MANAGE && granted === false) {
+    res.status(400).json({ error: "owner user.manage cannot be disabled" });
+    return;
+  }
+
+  setUserPermissionOverride(user.id, permission, granted);
+  res.status(200).json({ ok: true });
+});
+
+app.delete("/api/users/:id/permissions/:permission", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.USER_MANAGE);
+  if (!guard) {
+    return;
+  }
+
+  const user = getUserById(req.params.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const permission = req.params.permission as Permission;
+  if (!listAllPermissions().includes(permission)) {
+    res.status(400).json({ error: "Unknown permission" });
+    return;
+  }
+
+  removeUserPermissionOverride(user.id, permission);
+  res.status(200).json({ ok: true });
+});
 
 app.get("/api/media", (_req, res) => {
   res.json(listMediaItems());
@@ -159,28 +616,82 @@ const io = new Server(httpServer, {
   }
 });
 
+function can(socket: any, permission: Permission): boolean {
+  const user = socket.data?.user as UserRow | undefined;
+  const overrides = (socket.data?.overrides as UserPermissionOverrideRow[] | undefined) ?? [];
+  if (!user) {
+    return false;
+  }
+
+  return resolvePermission(user.role, permission, toPermissionOverrides(overrides));
+}
+
+function denyPermission(socket: any, eventName: string, permission: Permission): void {
+  socket.emit(SocketEvents.PERMISSION_DENIED, {
+    event: eventName,
+    permission
+  });
+}
+
+function isVisibilityOnlyUpdate(incomingWidget: Widget | WidgetUpdate): boolean {
+  const keys = Object.keys(incomingWidget).filter((key) => key !== "id");
+  return (
+    keys.length === 1
+    && keys[0] === "visible"
+    && typeof (incomingWidget as { visible?: unknown }).visible === "boolean"
+  );
+}
+
 io.on("connection", (socket) => {
   console.log("client connected");
 
-  socket.on(JOIN_EVENT, (payload: { role: "dashboard" | "overlay"; token?: string }) => {
-    if (!payload || (payload.role !== "dashboard" && payload.role !== "overlay")) {
+  socket.on(JOIN_EVENT, (payload: { token?: string }) => {
+    const token = payload?.token;
+    if (!token) {
+      socket.emit(SocketEvents.AUTH_ERROR, "Invalid token");
+      socket.disconnect(true);
       return;
     }
 
-    if (payload.role === "dashboard") {
-      if (!payload.token || payload.token !== ownerToken) {
+    const totalUsers = countUsers();
+    let user: UserRow | null = null;
+    let overrides: UserPermissionOverrideRow[] = [];
+
+    if (totalUsers === 0 && hasConfiguredOwnerToken && token === configuredOwnerToken) {
+      user = {
+        id: OWNER_TOKEN_FALLBACK_USER_ID,
+        username: "owner-token",
+        passwordHash: "",
+        role: "owner",
+        sessionToken: token,
+        sessionExpiresAt: null,
+        createdAt: new Date().toISOString()
+      };
+    } else {
+      user = getUserBySessionToken(token);
+      if (!user || !user.sessionExpiresAt || Date.parse(user.sessionExpiresAt) <= Date.now()) {
+        if (user) {
+          clearSessionToken(user.id);
+        }
         socket.emit(SocketEvents.AUTH_ERROR, "Invalid token");
         socket.disconnect(true);
         return;
       }
+
+      overrides = getUserPermissionOverrides(user.id);
     }
 
-    socket.data.role = payload.role;
+    socket.data.user = user;
+    socket.data.overrides = overrides;
+    socket.emit(SocketEvents.AUTH_SUCCESS, {
+      user: buildUserResponse(user)
+    });
     socket.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.WIDGET_ADD, (widget: Widget) => {
-    if (socket.data.role !== "dashboard") {
+    if (!can(socket, Permissions.WIDGET_ADD)) {
+      denyPermission(socket, SocketEvents.WIDGET_ADD, Permissions.WIDGET_ADD);
       return;
     }
 
@@ -195,7 +706,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Widget | WidgetUpdate) => {
-    if (socket.data.role !== "dashboard") {
+    const requiredPermission = isVisibilityOnlyUpdate(incomingWidget)
+      ? Permissions.WIDGET_VISIBILITY
+      : Permissions.WIDGET_EDIT;
+    if (!can(socket, requiredPermission)) {
+      denyPermission(socket, SocketEvents.WIDGET_UPDATE, requiredPermission);
       return;
     }
 
@@ -225,11 +740,17 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
+    if (!can(socket, Permissions.WIDGET_TRANSFORM)) {
+      denyPermission(socket, SocketEvents.WIDGET_TRANSFORM, Permissions.WIDGET_TRANSFORM);
+      return;
+    }
+
     socket.broadcast.emit(SocketEvents.WIDGET_TRANSFORM, data);
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
-    if (socket.data.role !== "dashboard") {
+    if (!can(socket, Permissions.WIDGET_REMOVE)) {
+      denyPermission(socket, SocketEvents.WIDGET_REMOVE, Permissions.WIDGET_REMOVE);
       return;
     }
 
@@ -244,7 +765,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.SCENE_CHANGE, (payload: { sceneId: string }) => {
-    if (socket.data.role !== "dashboard") {
+    if (!can(socket, Permissions.SCENE_MANAGE)) {
+      denyPermission(socket, SocketEvents.SCENE_CHANGE, Permissions.SCENE_MANAGE);
       return;
     }
 
@@ -256,6 +778,15 @@ io.on("connection", (socket) => {
     canvasState.activeSceneId = payload.sceneId;
     saveState("canvas", canvasState);
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+  });
+
+  socket.on(PLAY_SOUND_EVENT, (payload: Record<string, unknown>) => {
+    if (!can(socket, Permissions.SOUNDBOARD_PLAY)) {
+      denyPermission(socket, PLAY_SOUND_EVENT, Permissions.SOUNDBOARD_PLAY);
+      return;
+    }
+
+    socket.broadcast.emit(PLAY_SOUND_EVENT, payload);
   });
 });
 
