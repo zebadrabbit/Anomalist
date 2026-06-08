@@ -31,6 +31,8 @@
   let canvasElement: HTMLDivElement | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let scale = 1;
+  let offsetX = 0;
+  let offsetY = 0;
   let interaction: InteractionState | null = null;
   let draftWidgets: Record<string, Partial<Widget>> = {};
 
@@ -64,6 +66,8 @@
     }
 
     scale = Math.min(availableWidth / CANVAS_WIDTH, availableHeight / CANVAS_HEIGHT, 1);
+    offsetX = (availableWidth - CANVAS_WIDTH * scale) / 2;
+    offsetY = (availableHeight - CANVAS_HEIGHT * scale) / 2;
   }
 
   function getCanvasPoint(clientX: number, clientY: number): { x: number; y: number } {
@@ -414,7 +418,7 @@
   <div
     class="canvas-stage"
     bind:this={canvasElement}
-    style={`transform: scale(${scale}); width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px;`}
+    style={`position:absolute;left:0;top:0;width:${CANVAS_WIDTH}px;height:${CANVAS_HEIGHT}px;transform-origin:top left;transform:translate(${offsetX}px,${offsetY}px) scale(${scale});`}
   >
     {#each widgets as sourceWidget (sourceWidget.id)}
       <div
@@ -469,9 +473,6 @@
     position: relative;
     width: 100%;
     height: min(72vh, 760px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     background:
       linear-gradient(45deg, #1f2430 25%, transparent 25%) -12px 0 / 24px 24px,
       linear-gradient(-45deg, #1f2430 25%, transparent 25%) -12px 0 / 24px 24px,
@@ -484,8 +485,6 @@
   }
 
   .canvas-stage {
-    position: relative;
-    transform-origin: top left;
     background: rgba(10, 14, 24, 0.28);
   }
 
