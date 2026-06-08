@@ -7,12 +7,15 @@ services:
       - "${PORT:-3001}:3001"
     volumes:
       - anomalist_data:/app/data
+      - anomalist_media:/app/media
     environment:
       - NODE_ENV=production
       - PORT=3001
       - DB_PATH=/app/data/anomalist.db
+      - MEDIA_DIR=/app/media
       - OWNER_TOKEN=${OWNER_TOKEN:-change-me}
     restart: unless-stopped
 
 volumes:
   anomalist_data:
+  anomalist_media:

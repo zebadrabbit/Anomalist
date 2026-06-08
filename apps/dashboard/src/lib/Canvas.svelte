@@ -49,6 +49,13 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
+  function formatDuration(totalSeconds: number): string {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+
   function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
   }
@@ -448,7 +455,12 @@
       >
         <div class="widget-preview">
           {#if sourceWidget.type === "text"}
-            <div class="preview-text">{asString(sourceWidget.props.content, "Text")}</div>
+            <div
+              class="preview-text"
+              style={`font-size:${asNumber(sourceWidget.props.fontSize, 24)}px;color:${asString(sourceWidget.props.color, "#ffffff")};`}
+            >
+              {asString(sourceWidget.props.content, "Text")}
+            </div>
           {:else if sourceWidget.type === "image"}
             {#if asString(sourceWidget.props.url, "")}
               <img src={asString(sourceWidget.props.url, "")} alt="Widget preview" />
@@ -456,9 +468,29 @@
               <div class="placeholder">No image</div>
             {/if}
           {:else if sourceWidget.type === "timer"}
-            <div class="preview-text">00:00</div>
+            <div
+              class="preview-text"
+              style={`font-size:${asNumber(sourceWidget.props.fontSize, 32)}px;color:${asString(sourceWidget.props.color, "#ffffff")};`}
+            >
+              {asString(sourceWidget.props.mode, "stopwatch") === "countdown"
+                ? formatDuration(asNumber(sourceWidget.props.durationSeconds, 60))
+                : "0:00"}
+            </div>
           {:else if sourceWidget.type === "counter"}
-            <div class="preview-text">{Math.floor(asNumber(sourceWidget.props.value, 0))}</div>
+            <div class="preview-stack">
+              {#if asString(sourceWidget.props.label, "")}
+                <div
+                  style={`font-size:${asNumber(sourceWidget.props.fontSize, 32) * 0.45}px;color:${asString(sourceWidget.props.color, "#ffffff")};opacity:0.8;`}
+                >
+                  {asString(sourceWidget.props.label, "")}
+                </div>
+              {/if}
+              <div
+                style={`font-size:${asNumber(sourceWidget.props.fontSize, 32)}px;color:${asString(sourceWidget.props.color, "#ffffff")};`}
+              >
+                {asNumber(sourceWidget.props.value, 0)}
+              </div>
+            </div>
           {:else}
             <div class="preview-text">{sourceWidget.type}</div>
           {/if}
@@ -543,6 +575,14 @@
     font-weight: 600;
     font-size: 0.95rem;
     line-height: 1.2;
+  }
+
+  .preview-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
   }
 
   img {

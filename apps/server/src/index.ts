@@ -1,12 +1,15 @@
 import "dotenv/config";
 import express from "express";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import path from "node:path";
 import { Server } from "socket.io";
+import multer from "multer";
 import type { CanvasState, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
 import { loadState, saveState } from "./db.js";
+import { MEDIA_DIR, deleteMediaItem, listMediaItems, saveMediaItem } from "./media.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -53,6 +56,68 @@ function createDefaultState(): CanvasState {
     activeSceneId: "default"
   };
 }
+
+const allowedMimetypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "video/mp4",
+  "video/mpeg",
+  "video/webm"
+]);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, MEDIA_DIR);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${randomUUID()}${ext}`);
+    }
+  })
+});
+
+app.use("/media", express.static(MEDIA_DIR));
+
+app.get("/api/media", (_req, res) => {
+  res.json(listMediaItems());
+});
+
+app.post("/api/media", upload.single("file"), (req, res) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "No file uploaded" });
+    return;
+  }
+
+  if (!allowedMimetypes.has(file.mimetype)) {
+    fs.unlink(file.path, () => undefined);
+    res.status(415).json({ error: "Unsupported media type" });
+    return;
+  }
+
+  const item = {
+    id: randomUUID(),
+    filename: file.filename,
+    originalName: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    uploadedAt: new Date().toISOString()
+  };
+
+  saveMediaItem(item);
+  res.status(201).json({
+    ...item,
+    url: `/media/${item.filename}`
+  });
+});
+
+app.delete("/api/media/:id", (req, res) => {
+  deleteMediaItem(req.params.id);
+  res.status(200).json({ ok: true });
+});
 
 const persistedCanvasState = loadState("canvas");
 

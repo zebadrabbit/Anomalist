@@ -5,6 +5,7 @@
   import type { CanvasState, Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import Canvas from "../lib/Canvas.svelte";
+  import MediaLibrary from "../lib/MediaLibrary.svelte";
   import CounterSettings from "../lib/widgets/CounterSettings.svelte";
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
@@ -49,6 +50,8 @@
   let authError = "";
   let isAuthenticated = false;
   let selectedWidgetId: string | null = null;
+  let mediaLibraryOpen = false;
+  let selectedMediaUrl = "";
 
   $: activeScene = $canvasState?.scenes.find((scene) => scene.id === $canvasState.activeSceneId);
   $: widgets = activeScene?.widgets ?? [];
@@ -133,6 +136,25 @@
     selectedWidgetId = event.detail;
   }
 
+  function handleMediaSelect(url: string) {
+    selectedMediaUrl = url;
+
+    if (!socket || !selectedWidget || selectedWidget.type !== "image") {
+      return;
+    }
+
+    socket.emit(SocketEvents.WIDGET_UPDATE, {
+      id: selectedWidget.id,
+      props: {
+        url
+      }
+    });
+  }
+
+  function openMediaLibrary() {
+    mediaLibraryOpen = true;
+  }
+
   onMount(() => {
     return () => {
       socket?.disconnect();
@@ -211,7 +233,7 @@
           {#if selectedWidget.type === "text"}
             <TextSettings widget={selectedWidget} {socket} />
           {:else if selectedWidget.type === "image"}
-            <ImageSettings widget={selectedWidget} {socket} />
+            <ImageSettings widget={selectedWidget} {socket} onOpenLibrary={openMediaLibrary} />
           {:else if selectedWidget.type === "timer"}
             <TimerSettings widget={selectedWidget} {socket} />
           {:else if selectedWidget.type === "counter"}
@@ -222,6 +244,18 @@
         {:else}
           <p>Select a widget to edit its settings.</p>
         {/if}
+
+        <details class="media-section" bind:open={mediaLibraryOpen}>
+          <summary>Media Library</summary>
+          <MediaLibrary onSelect={handleMediaSelect} />
+
+          {#if !selectedWidget}
+            <label>
+              Selected URL
+              <input value={selectedMediaUrl} readonly on:focus={(event) => event.currentTarget.select()} />
+            </label>
+          {/if}
+        </details>
       </aside>
     </section>
   {/if}
@@ -307,6 +341,18 @@
     background: #7c5cbf;
     color: #fff;
     border-color: #7c5cbf;
+  }
+
+  .media-section {
+    margin-top: 1rem;
+    border-top: 1px solid #e5e8ef;
+    padding-top: 0.75rem;
+  }
+
+  .media-section summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
   }
 
   @media (max-width: 1100px) {

@@ -5,6 +5,7 @@
 
   export let widget: Widget;
   export let socket: Socket | null;
+  export let onOpenLibrary: (() => void) | null = null;
   const debouncers = new Map<string, (value: unknown) => void>();
 
   function debounce(fn: (...args: any[]) => void, ms: number) {
@@ -51,6 +52,10 @@
     <input value={url} on:input={(event) => emitProp("url", event.currentTarget.value)} />
   </label>
 
+  <button type="button" class="library-button" on:click={() => onOpenLibrary?.()}>
+    Choose from Library
+  </button>
+
   <label>
     Opacity ({opacity.toFixed(2)})
     <input
@@ -84,5 +89,9 @@
     display: grid;
     gap: 0.35rem;
     font-size: 0.95rem;
+  }
+
+  .library-button {
+    justify-self: start;
   }
 </style>

@@ -54,6 +54,8 @@
   $: value = Math.floor(asNumber(widget.props.value, 0));
   $: step = Math.max(1, asNumber(widget.props.step, 1));
   $: label = asString(widget.props.label, "");
+  $: fontSize = asNumber(widget.props.fontSize, 32);
+  $: color = asString(widget.props.color, "#ffffff");
 </script>
 
 <section>
@@ -75,6 +77,22 @@
   <label>
     Label
     <input value={label} on:input={(event) => emitProp("label", event.currentTarget.value)} />
+  </label>
+
+  <label>
+    Font Size
+    <input
+      type="number"
+      min="8"
+      max="200"
+      value={fontSize}
+      on:input={(event) => emitProp("fontSize", Number(event.currentTarget.value) || 8)}
+    />
+  </label>
+
+  <label>
+    Color
+    <input type="color" value={color} on:input={(event) => emitProp("color", event.currentTarget.value)} />
   </label>
 
   <button type="button" on:click={() => emitPropsImmediate({ value: 0 })}>Reset</button>
