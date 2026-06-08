@@ -7,6 +7,12 @@ export default defineConfig({
   plugins: [sveltekit()],
   server: {
     proxy: {
+      "/api": {
+        target: socketProxyTarget
+      },
+      "/media": {
+        target: socketProxyTarget
+      },
       "/socket.io": {
         target: socketProxyTarget,
         ws: true

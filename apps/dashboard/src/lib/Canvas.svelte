@@ -34,6 +34,9 @@
   let offsetX = 0;
   let interaction: InteractionState | null = null;
   let draftWidgets: Record<string, Partial<Widget>> = {};
+  let now = Date.now();
+  let tickInterval: ReturnType<typeof setInterval>;
+  let timerElapsedByWidget: Record<string, number> = {};
 
   const handles: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
@@ -49,11 +52,32 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
-  function formatDuration(totalSeconds: number): string {
-    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-    const minutes = Math.floor(safeSeconds / 60);
-    const seconds = safeSeconds % 60;
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  function getTimerDisplaySeconds(widget: Widget, tickNow: number): number {
+    const isRunning = widget.props.running === true;
+    const mode = widget.props.mode === "countdown" ? "countdown" : "stopwatch";
+    const duration = asNumber(widget.props.durationSeconds, 60);
+    const startedAt = asNumber(widget.props.startedAt, 0);
+    const resetAt = asNumber(widget.props.resetAt, 0);
+
+    const previousElapsed = timerElapsedByWidget[widget.id] ?? 0;
+    let elapsed = previousElapsed;
+
+    if (resetAt > 0 && !isRunning && startedAt <= 0) {
+      elapsed = 0;
+    } else if (isRunning && startedAt > 0) {
+      elapsed = Math.max(0, Math.floor((tickNow - startedAt) / 1000));
+    }
+
+    timerElapsedByWidget = {
+      ...timerElapsedByWidget,
+      [widget.id]: elapsed
+    };
+
+    if (mode === "countdown") {
+      return Math.max(0, duration - elapsed);
+    }
+
+    return elapsed;
   }
 
   function clamp(value: number, min: number, max: number): number {
@@ -410,6 +434,10 @@
   }
 
   onMount(() => {
+    tickInterval = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+
     updateScale();
     resizeObserver = new ResizeObserver(() => {
       updateScale();
@@ -436,6 +464,7 @@
   });
 
   onDestroy(() => {
+    clearInterval(tickInterval);
     interaction = null;
   });
 </script>
@@ -468,13 +497,14 @@
               <div class="placeholder">No image</div>
             {/if}
           {:else if sourceWidget.type === "timer"}
+            {@const displaySeconds = getTimerDisplaySeconds(sourceWidget, now)}
+            {@const mm = Math.floor(displaySeconds / 60).toString().padStart(2, "0")}
+            {@const ss = (displaySeconds % 60).toString().padStart(2, "0")}
             <div
               class="preview-text"
               style={`font-size:${asNumber(sourceWidget.props.fontSize, 32)}px;color:${asString(sourceWidget.props.color, "#ffffff")};`}
             >
-              {asString(sourceWidget.props.mode, "stopwatch") === "countdown"
-                ? formatDuration(asNumber(sourceWidget.props.durationSeconds, 60))
-                : "0:00"}
+              {mm}:{ss}
             </div>
           {:else if sourceWidget.type === "counter"}
             <div class="preview-stack">

@@ -33,6 +33,8 @@
       mode: "stopwatch",
       durationSeconds: 60,
       running: false,
+      startedAt: 0,
+      resetAt: 0,
       fontSize: 32,
       color: "#ffffff"
     },

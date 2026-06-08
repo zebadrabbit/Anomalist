@@ -15,9 +15,6 @@
     };
   }
 
-  let trackedWidgetId = "";
-  let originalDuration = 60;
-
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
   }
@@ -59,11 +56,6 @@
   $: running = widget.props.running === true;
   $: fontSize = asNumber(widget.props.fontSize, 32);
   $: color = asString(widget.props.color, "#ffffff");
-
-  $: if (trackedWidgetId !== widget.id) {
-    trackedWidgetId = widget.id;
-    originalDuration = durationSeconds;
-  }
 </script>
 
 <section class="flex flex-col gap-3">
@@ -89,12 +81,19 @@
   {/if}
 
   <div class="flex flex-wrap gap-2">
-    <button class="btn btn-sm btn-primary" type="button" on:click={() => emitPropsImmediate({ running: true })} disabled={running}>Start</button>
+    <button
+      class="btn btn-sm btn-primary"
+      type="button"
+      on:click={() => emitPropsImmediate({ running: true, startedAt: Date.now() })}
+      disabled={running}
+    >
+      Start
+    </button>
     <button class="btn btn-sm" type="button" on:click={() => emitPropsImmediate({ running: false })} disabled={!running}>Stop</button>
     <button
       class="btn btn-sm"
       type="button"
-      on:click={() => emitPropsImmediate({ running: false, durationSeconds: originalDuration })}
+      on:click={() => emitPropsImmediate({ running: false, startedAt: 0, resetAt: Date.now() })}
     >
       Reset
     </button>

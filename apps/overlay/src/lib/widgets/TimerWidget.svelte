@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy } from "svelte";
   import type { Widget } from "@anomalist/types";
 
   export let widget: Widget;
 
-  let currentSeconds = 0;
-  let intervalId: ReturnType<typeof setInterval> | null = null;
-  let lastIdentity = "";
+  let now = Date.now();
+  let interval = setInterval(() => {
+    now = Date.now();
+  }, 250);
+  let frozenElapsed = 0;
+  let elapsed = 0;
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -14,10 +17,6 @@
 
   function asNumber(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-  }
-
-  function asBoolean(value: unknown, fallback: boolean): boolean {
-    return typeof value === "boolean" ? value : fallback;
   }
 
   function pad(value: number): string {
@@ -33,47 +32,31 @@
 
   $: mode = asString(widget.props.mode, "stopwatch") === "countdown" ? "countdown" : "stopwatch";
   $: durationSeconds = Math.max(0, Math.floor(asNumber(widget.props.durationSeconds, 60)));
-  $: running = asBoolean(widget.props.running, false);
+  $: startedAt = asNumber(widget.props.startedAt, 0);
+  $: resetAt = asNumber(widget.props.resetAt, 0);
+  $: running = widget.props.running === true;
   $: fontSize = Math.max(8, asNumber(widget.props.fontSize, 32));
   $: color = asString(widget.props.color, "#ffffff");
 
-  $: identity = `${widget.id}:${mode}:${durationSeconds}`;
-  $: if (identity !== lastIdentity) {
-    lastIdentity = identity;
-    currentSeconds = mode === "countdown" ? durationSeconds : 0;
+  $: if (running && startedAt > 0) {
+    elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
+    frozenElapsed = elapsed;
+  } else {
+    if (resetAt > 0 && startedAt <= 0) {
+      frozenElapsed = 0;
+    }
+    elapsed = frozenElapsed;
   }
 
-  onMount(() => {
-    intervalId = setInterval(() => {
-      if (!running) {
-        return;
-      }
-
-      if (mode === "countdown") {
-        if (currentSeconds > 0) {
-          currentSeconds -= 1;
-        }
-
-        if (currentSeconds <= 0) {
-          currentSeconds = 0;
-        }
-        return;
-      }
-
-      currentSeconds += 1;
-    }, 1000);
-  });
+  $: displaySeconds = mode === "countdown" ? Math.max(0, durationSeconds - elapsed) : elapsed;
 
   onDestroy(() => {
-    if (intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
-    }
+    clearInterval(interval);
   });
 </script>
 
 <div
   style={`width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${color};font-variant-numeric:tabular-nums;`}
 >
-  {formatTime(currentSeconds)}
+  {formatTime(displaySeconds)}
 </div>
