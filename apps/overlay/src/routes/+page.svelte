@@ -2,13 +2,14 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, Widget, WidgetTransform } from "@anomalist/types";
+  import type { CanvasState, SoundPlay, Widget, WidgetTransform } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import CounterWidget from "../lib/widgets/CounterWidget.svelte";
   import ClockWidget from "../lib/widgets/ClockWidget.svelte";
   import ImageWidget from "../lib/widgets/ImageWidget.svelte";
   import MarqueeWidget from "../lib/widgets/MarqueeWidget.svelte";
   import ShapeWidget from "../lib/widgets/ShapeWidget.svelte";
+  import SoundboardWidget from "../lib/widgets/SoundboardWidget.svelte";
   import TextWidget from "../lib/widgets/TextWidget.svelte";
   import TimerWidget from "../lib/widgets/TimerWidget.svelte";
 
@@ -17,6 +18,7 @@
   const liveState = writable<CanvasState | null>(null);
   let socket: Socket | null = null;
   let transformDrafts: Record<string, Partial<Widget>> = {};
+  let activeSounds: HTMLAudioElement[] = [];
 
   $: activeScene = $liveState?.scenes.find((scene) => scene.id === $liveState.activeSceneId);
   $: widgets = activeScene?.widgets.filter((widget) => widget.visible) ?? [];
@@ -50,12 +52,50 @@
       return ShapeWidget;
     }
 
+    if (widgetType === "soundboard") {
+      return SoundboardWidget;
+    }
+
     return null;
+  }
+
+  async function playSound(data: SoundPlay) {
+    if (!data.url || !data.url.startsWith("/media/")) {
+      return;
+    }
+
+    if (activeSounds.length >= 4) {
+      const oldest = activeSounds.shift();
+      if (oldest) {
+        oldest.pause();
+        oldest.currentTime = 0;
+      }
+    }
+
+    const audio = new Audio(data.url);
+    audio.volume = Math.min(1, Math.max(0, Number.isFinite(data.volume) ? data.volume : 1));
+    activeSounds.push(audio);
+
+    const cleanup = () => {
+      activeSounds = activeSounds.filter((item) => item !== audio);
+    };
+
+    audio.addEventListener("ended", cleanup, { once: true });
+    audio.addEventListener("error", cleanup, { once: true });
+
+    try {
+      await audio.play();
+    } catch {
+      cleanup();
+    }
   }
 
   onMount(() => {
     socket = io(window.location.origin);
-    socket.emit(JOIN_EVENT, { role: "overlay" });
+    const joinToken = new URLSearchParams(window.location.search).get("token");
+    if (joinToken) {
+      socket.emit(JOIN_EVENT, { token: joinToken });
+    }
 
     socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
       const { id, ...transform } = data;
@@ -73,7 +113,16 @@
       transformDrafts = {};
     });
 
+    socket.on(SocketEvents.PLAY_SOUND, (data: SoundPlay) => {
+      void playSound(data);
+    });
+
     return () => {
+      for (const sound of activeSounds) {
+        sound.pause();
+        sound.currentTime = 0;
+      }
+      activeSounds = [];
       socket?.disconnect();
       socket = null;
     };

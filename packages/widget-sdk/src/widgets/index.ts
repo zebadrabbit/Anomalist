@@ -3,5 +3,6 @@ export { clockWidgetDefinition } from "./clock.js";
 export { imageWidgetDefinition } from "./image.js";
 export { marqueeWidgetDefinition } from "./marquee.js";
 export { shapeWidgetDefinition } from "./shape.js";
+export { soundboardWidgetDefinition } from "./soundboard.js";
 export { textWidgetDefinition } from "./text.js";
 export { timerWidgetDefinition } from "./timer.js";

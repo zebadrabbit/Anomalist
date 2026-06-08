@@ -77,6 +77,20 @@ Use a dark rectangle as a backing bar behind your text for better readability.
 
 Pick rectangle, circle, or pill styles and tune fill color, border color, opacity, and border width.
 
+## Soundboard Widget
+
+The Soundboard widget gives your moderators fast one-click sound triggers during a live show.
+
+How to use it:
+1. Add a Soundboard widget from the Add Widget list.
+2. Select it, open settings, and click Add Sound.
+3. Pick audio files from the media library (Audio tab).
+4. Set sound names and per-sound volume.
+5. Trigger sounds from the Soundboard grid in settings or from the persistent Sounds section in the sidebar.
+
+OBS audio note:
+When your overlay is loaded as a browser source, OBS captures these sound plays automatically from the browser source audio output.
+
 ## Practical Tips
 
 - Keep widgets in staging while you test placements and colors.

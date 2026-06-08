@@ -46,11 +46,24 @@ export interface User {
   permissions?: string[];
 }
 
+export interface SoundEntry {
+  id: string;
+  name: string;
+  url: string;
+  volume: number;
+}
+
+export interface SoundPlay {
+  url: string;
+  volume: number;
+}
+
 export const SocketEvents = {
   AUTH_ERROR: "AUTH_ERROR",
   AUTH_SUCCESS: "auth:success",
   CANVAS_UPDATE: "CANVAS_UPDATE",
   PERMISSION_DENIED: "permission:denied",
+  PLAY_SOUND: "sound:play",
   WIDGET_TRANSFORM: "widget:transform",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",

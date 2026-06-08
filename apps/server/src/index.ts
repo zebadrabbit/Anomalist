@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { Server } from "socket.io";
 import multer from "multer";
-import type { CanvasState, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
+import type { CanvasState, SoundPlay, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
 import { SocketEvents } from "@anomalist/types";
 import {
   clearSessionToken,
@@ -31,7 +31,7 @@ import {
   type UserPermissionOverrideRow,
   type UserRow
 } from "./db.js";
-import { MEDIA_DIR, deleteMediaItem, listMediaItems, saveMediaItem } from "./media.js";
+import { MEDIA_DIR, deleteMediaItem, getMediaType, listMediaItems, saveMediaItem } from "./media.js";
 import {
   Permissions,
   getRolePermissions,
@@ -43,7 +43,6 @@ import {
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
-const PLAY_SOUND_EVENT = "PLAY_SOUND";
 const OWNER_TOKEN_FALLBACK_USER_ID = "owner-token-fallback";
 
 const configuredOwnerToken = process.env.OWNER_TOKEN;
@@ -95,7 +94,12 @@ const allowedMimetypes = new Set([
   "image/webp",
   "video/mp4",
   "video/mpeg",
-  "video/webm"
+  "video/webm",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/webm",
+  "audio/flac"
 ]);
 
 const upload = multer({
@@ -560,6 +564,7 @@ app.post("/api/media", upload.single("file"), (req, res) => {
     filename: file.filename,
     originalName: file.originalname,
     mimetype: file.mimetype,
+    mediaType: getMediaType(file.mimetype),
     size: file.size,
     uploadedAt: new Date().toISOString()
   };
@@ -780,13 +785,19 @@ io.on("connection", (socket) => {
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
-  socket.on(PLAY_SOUND_EVENT, (payload: Record<string, unknown>) => {
+  socket.on(SocketEvents.PLAY_SOUND, (data: SoundPlay) => {
     if (!can(socket, Permissions.SOUNDBOARD_PLAY)) {
-      denyPermission(socket, PLAY_SOUND_EVENT, Permissions.SOUNDBOARD_PLAY);
+      denyPermission(socket, SocketEvents.PLAY_SOUND, Permissions.SOUNDBOARD_PLAY);
       return;
     }
 
-    socket.broadcast.emit(PLAY_SOUND_EVENT, payload);
+    if (!data || typeof data.url !== "string" || !data.url.startsWith("/media/")) {
+      socket.emit(SocketEvents.AUTH_ERROR, { message: "Sound URL must be a server-hosted media file." });
+      return;
+    }
+
+    const volume = Math.min(1, Math.max(0, Number.isFinite(data.volume) ? data.volume : 1));
+    io.emit(SocketEvents.PLAY_SOUND, { url: data.url, volume });
   });
 });
 

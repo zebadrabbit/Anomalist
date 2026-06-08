@@ -15,34 +15,53 @@ db.exec(`
     filename TEXT NOT NULL,
     originalName TEXT NOT NULL,
     mimetype TEXT NOT NULL,
+    mediaType TEXT NOT NULL DEFAULT 'image',
     size INTEGER NOT NULL,
     uploadedAt TEXT NOT NULL
   );
 `);
+
+const mediaColumns = db.prepare("PRAGMA table_info(media_items)").all() as Array<{ name: string }>;
+if (!mediaColumns.some((column) => column.name === "mediaType")) {
+  db.exec("ALTER TABLE media_items ADD COLUMN mediaType TEXT NOT NULL DEFAULT 'image';");
+}
+
+export function getMediaType(mimetype: string): "image" | "video" | "audio" {
+  if (mimetype.startsWith("video/")) {
+    return "video";
+  }
+
+  if (mimetype.startsWith("audio/")) {
+    return "audio";
+  }
+
+  return "image";
+}
 
 export interface MediaItem {
   id: string;
   filename: string;
   originalName: string;
   mimetype: string;
+  mediaType: "image" | "video" | "audio";
   size: number;
   uploadedAt: string;
   url: string;
 }
 
 const insertMediaItemStmt = db.prepare(`
-  INSERT INTO media_items (id, filename, originalName, mimetype, size, uploadedAt)
-  VALUES (@id, @filename, @originalName, @mimetype, @size, @uploadedAt)
+  INSERT INTO media_items (id, filename, originalName, mimetype, mediaType, size, uploadedAt)
+  VALUES (@id, @filename, @originalName, @mimetype, @mediaType, @size, @uploadedAt)
 `);
 
 const listMediaItemsStmt = db.prepare(`
-  SELECT id, filename, originalName, mimetype, size, uploadedAt
+  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt
   FROM media_items
   ORDER BY uploadedAt DESC
 `);
 
 const selectMediaItemStmt = db.prepare(`
-  SELECT id, filename, originalName, mimetype, size, uploadedAt
+  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt
   FROM media_items
   WHERE id = ?
 `);

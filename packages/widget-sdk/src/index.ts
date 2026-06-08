@@ -34,3 +34,4 @@ export * from "./widgets/index.js";
 export { marqueeWidgetDefinition } from "./widgets/marquee.js";
 export { clockWidgetDefinition } from "./widgets/clock.js";
 export { shapeWidgetDefinition } from "./widgets/shape.js";
+export { soundboardWidgetDefinition } from "./widgets/soundboard.js";

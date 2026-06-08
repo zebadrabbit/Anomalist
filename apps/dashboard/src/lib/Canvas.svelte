@@ -636,6 +636,11 @@
             <div
               style={`width:100%;height:100%;background:${fill};border:${Math.max(0, Math.floor(asNumber(sourceWidget.props.borderWidth, 0)))}px solid ${border};box-sizing:border-box;border-radius:${borderRadius};`}
             ></div>
+          {:else if sourceWidget.type === "soundboard"}
+            <div class="preview-stack">
+              <div style="font-size:1.8rem;line-height:1;">speaker</div>
+              <div class="preview-text">Soundboard</div>
+            </div>
           {:else}
             <div class="preview-text">{sourceWidget.type}</div>
           {/if}

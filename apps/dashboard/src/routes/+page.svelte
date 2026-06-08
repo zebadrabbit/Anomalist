@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, Widget } from "@anomalist/types";
+  import type { CanvasState, SoundEntry, Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import Canvas from "../lib/Canvas.svelte";
   import FirstRunSetup from "../lib/FirstRunSetup.svelte";
@@ -17,10 +17,11 @@
   import ImageSettings from "../lib/widgets/ImageSettings.svelte";
   import MarqueeSettings from "../lib/widgets/MarqueeSettings.svelte";
   import ShapeSettings from "../lib/widgets/ShapeSettings.svelte";
+  import SoundboardSettings from "../lib/widgets/SoundboardSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
   import TimerSettings from "../lib/widgets/TimerSettings.svelte";
 
-  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape";
+  type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard";
   type ViewState = "loading" | "setup" | "login" | "dashboard";
 
   const JOIN_EVENT = "JOIN";
@@ -41,7 +42,8 @@
       pauseOnHover: false
     },
     clock: { format: "24h", showSeconds: true, timezone: "", fontSize: 48, color: "#ffffff", fontWeight: "bold" },
-    shape: { shape: "rectangle", fillColor: "#7c3aed", fillOpacity: 1, borderColor: "transparent", borderWidth: 0, borderOpacity: 1 }
+    shape: { shape: "rectangle", fillColor: "#7c3aed", fillOpacity: 1, borderColor: "transparent", borderWidth: 0, borderOpacity: 1 },
+    soundboard: { sounds: [], columns: 3, buttonColor: "#7c3aed", buttonTextColor: "#ffffff" }
   };
 
   let socket: Socket | null = null;
@@ -66,8 +68,27 @@
   $: canWidgetEdit = auth.permissions.includes("widget.edit");
   $: canWidgetTransform = auth.permissions.includes("widget.transform");
   $: canWidgetVisibility = auth.permissions.includes("widget.visibility");
+  $: canPlaySoundboard = auth.permissions.includes("soundboard.play");
   $: canSceneManage = auth.permissions.includes("scene.manage");
   $: canUserManage = auth.permissions.includes("user.manage");
+  $: allSoundsFromSoundboards = widgets
+    .filter((widget) => widget.type === "soundboard")
+    .flatMap((widget) => {
+      const soundsRaw = widget.props.sounds;
+      if (!Array.isArray(soundsRaw)) {
+        return [] as SoundEntry[];
+      }
+
+      return soundsRaw
+        .filter((item): item is Partial<SoundEntry> => !!item && typeof item === "object")
+        .map((item) => ({
+          id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
+          name: typeof item.name === "string" ? item.name : "Sound",
+          url: typeof item.url === "string" ? item.url : "",
+          volume: typeof item.volume === "number" && Number.isFinite(item.volume) ? item.volume : 1
+        }))
+        .filter((item) => item.url.startsWith("/media/"));
+    });
 
   $: if (selectedWidgetId && !widgets.some((widget) => widget.id === selectedWidgetId)) {
     selectedWidgetId = null;
@@ -97,8 +118,9 @@
       isConnected = true;
     });
 
-    socket.on(SocketEvents.AUTH_ERROR, async (message: string) => {
-      addToast("error", message || "Session expired. Please sign in again.");
+    socket.on(SocketEvents.AUTH_ERROR, async (payload: string | { message?: string }) => {
+      const message = typeof payload === "string" ? payload : payload?.message ?? "Session expired. Please sign in again.";
+      addToast("error", message);
       await handleLogout();
     });
 
@@ -152,7 +174,8 @@
       counter: { width: 220, height: 110 },
       marquee: { width: 600, height: 64 },
       clock: { width: 320, height: 96 },
-      shape: { width: 360, height: 110 }
+      shape: { width: 360, height: 110 },
+      soundboard: { width: 500, height: 300 }
     };
 
     const offset = (widgets.length * 36) % 180;
@@ -266,6 +289,17 @@
     activeRightTab = "media";
   }
 
+  function playSound(sound: SoundEntry) {
+    if (!socket) {
+      return;
+    }
+
+    socket.emit(SocketEvents.PLAY_SOUND, {
+      url: sound.url,
+      volume: Math.min(1, Math.max(0, sound.volume))
+    });
+  }
+
   onMount(() => {
     void bootstrapAuth();
     return () => {
@@ -325,6 +359,7 @@
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("marquee")}>Marquee</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("clock")}>Clock</button>
               <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("shape")}>Shape</button>
+              <button type="button" class="btn btn-ghost justify-start" disabled={!canWidgetAdd} on:click={() => addWidget("soundboard")}>Soundboard</button>
             </div>
 
             <div class="divider my-4"></div>
@@ -416,6 +451,8 @@
                     <ClockSettings widget={selectedWidget} {socket} />
                   {:else if selectedWidget.type === "shape"}
                     <ShapeSettings widget={selectedWidget} {socket} />
+                  {:else if selectedWidget.type === "soundboard"}
+                    <SoundboardSettings widget={selectedWidget} {socket} />
                   {/if}
                 {:else}
                   <div class="alert alert-warning text-sm">You can view widgets, but do not have permission to edit widget settings.</div>
@@ -439,6 +476,22 @@
               </label>
             {/if}
           {/if}
+
+          <div class="mt-6 border-t border-base-300 pt-4">
+            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Sounds</h3>
+            {#if allSoundsFromSoundboards.length === 0}
+              <p class="text-sm text-base-content/70">Add a Soundboard widget to get started.</p>
+            {:else}
+              <div class="grid grid-cols-2 gap-2">
+                {#each allSoundsFromSoundboards as sound (sound.id)}
+                  <button type="button" class="btn btn-sm justify-between" on:click={() => playSound(sound)}>
+                    <span class="truncate">{sound.name}</span>
+                    <span>play</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </aside>
       </div>
 

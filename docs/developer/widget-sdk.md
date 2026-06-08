@@ -42,6 +42,8 @@ registerWidget(myWidget);
 - Read widget.props safely with fallbacks.
 - Use inline styles for position and size based on widget.x, y, width, height.
 - Keep rendering pure; client-side timers/animations are okay when needed.
+- Some widgets are dashboard-only controls and intentionally render nothing on overlay.
+- For these overlay-invisible widgets, keep an empty renderer component so routing stays consistent.
 
 ## Dashboard Settings Notes
 
