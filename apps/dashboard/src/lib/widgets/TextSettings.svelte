@@ -48,15 +48,16 @@
   $: isTransparent = backgroundColor === "transparent";
 </script>
 
-<section>
-  <label>
-    Content
-    <input value={content} on:input={(event) => emitProp("content", event.currentTarget.value)} />
+<section class="flex flex-col gap-3">
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Content</span>
+    <input class="input input-bordered input-sm w-full" value={content} on:input={(event) => emitProp("content", event.currentTarget.value)} />
   </label>
 
-  <label>
-    Font Size
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Font Size</span>
     <input
+      class="input input-bordered input-sm w-full"
       type="number"
       min="8"
       value={fontSize}
@@ -64,60 +65,53 @@
     />
   </label>
 
-  <label>
-    Text Color
-    <input
-      type="color"
-      value={color}
-      on:input={(event) => emitProp("color", event.currentTarget.value)}
-    />
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Text Color</span>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-2">
+      <input
+        class="h-8 w-full"
+        type="color"
+        value={color}
+        on:input={(event) => emitProp("color", event.currentTarget.value)}
+      />
+    </div>
   </label>
 
-  <label class="inline">
-    <input
-      type="checkbox"
-      checked={fontWeight === "bold"}
-      on:change={(event) => emitProp("fontWeight", event.currentTarget.checked ? "bold" : "normal")}
-    />
-    Bold
+  <label class="form-control">
+    <span class="label cursor-pointer justify-start gap-3">
+      <input
+        class="toggle toggle-primary"
+        type="checkbox"
+        checked={fontWeight === "bold"}
+        on:change={(event) => emitProp("fontWeight", event.currentTarget.checked ? "bold" : "normal")}
+      />
+      <span class="label-text">Bold</span>
+    </span>
   </label>
 
-  <label class="inline">
-    <input
-      type="checkbox"
-      checked={isTransparent}
-      on:change={(event) =>
-        emitProp("backgroundColor", event.currentTarget.checked ? "transparent" : "#000000")}
-    />
-    Transparent Background
+  <label class="form-control">
+    <span class="label cursor-pointer justify-start gap-3">
+      <input
+        class="toggle toggle-primary"
+        type="checkbox"
+        checked={isTransparent}
+        on:change={(event) =>
+          emitProp("backgroundColor", event.currentTarget.checked ? "transparent" : "#000000")}
+      />
+      <span class="label-text">Transparent Background</span>
+    </span>
   </label>
 
-  <label>
-    Background Color
-    <input
-      type="color"
-      value={isTransparent ? "#000000" : backgroundColor}
-      disabled={isTransparent}
-      on:input={(event) => emitProp("backgroundColor", event.currentTarget.value)}
-    />
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Background Color</span>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-2">
+      <input
+        class="h-8 w-full"
+        type="color"
+        value={isTransparent ? "#000000" : backgroundColor}
+        disabled={isTransparent}
+        on:input={(event) => emitProp("backgroundColor", event.currentTarget.value)}
+      />
+    </div>
   </label>
 </section>
-
-<style>
-  section {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  label {
-    display: grid;
-    gap: 0.35rem;
-    font-size: 0.95rem;
-  }
-
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-</style>

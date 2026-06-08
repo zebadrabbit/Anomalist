@@ -46,19 +46,20 @@
   $: borderRadius = asNumber(widget.props.borderRadius, 0);
 </script>
 
-<section>
-  <label>
-    Image URL
-    <input value={url} on:input={(event) => emitProp("url", event.currentTarget.value)} />
+<section class="flex flex-col gap-3">
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Image URL</span>
+    <input class="input input-bordered input-sm w-full" value={url} on:input={(event) => emitProp("url", event.currentTarget.value)} />
   </label>
 
-  <button type="button" class="library-button" on:click={() => onOpenLibrary?.()}>
+  <button type="button" class="btn btn-sm btn-secondary" on:click={() => onOpenLibrary?.()}>
     Choose from Library
   </button>
 
-  <label>
-    Opacity ({opacity.toFixed(2)})
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Opacity ({opacity.toFixed(2)})</span>
     <input
+      class="range range-primary range-sm"
       type="range"
       min="0"
       max="1"
@@ -68,9 +69,10 @@
     />
   </label>
 
-  <label>
-    Border Radius
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Border Radius</span>
     <input
+      class="input input-bordered input-sm w-full"
       type="number"
       min="0"
       value={borderRadius}
@@ -78,20 +80,3 @@
     />
   </label>
 </section>
-
-<style>
-  section {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  label {
-    display: grid;
-    gap: 0.35rem;
-    font-size: 0.95rem;
-  }
-
-  .library-button {
-    justify-self: start;
-  }
-</style>

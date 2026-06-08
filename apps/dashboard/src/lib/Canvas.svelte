@@ -531,7 +531,7 @@
       linear-gradient(45deg, transparent 75%, #1f2430 75%) -12px 0 / 24px 24px,
       linear-gradient(-45deg, transparent 75%, #1f2430 75%) -12px 0 / 24px 24px,
       #121620;
-    border-radius: 12px;
+    border-radius: 0.75rem;
     overflow: hidden;
     touch-action: none;
   }
@@ -549,8 +549,8 @@
   }
 
   .widget-frame.selected {
-    border: 2px solid #39b5ff;
-    box-shadow: 0 0 0 2px rgba(57, 181, 255, 0.3);
+    border: 2px solid #06b6d4;
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.35);
   }
 
   .hidden-widget {
@@ -610,7 +610,7 @@
     border: 0;
     padding: 0;
     border-radius: 2px;
-    background: #39b5ff;
+    background: #06b6d4;
     cursor: pointer;
     transform: translate(-50%, -50%);
   }
@@ -627,7 +627,7 @@
     position: absolute;
     width: 2px;
     height: 16px;
-    background: #39b5ff;
+    background: #06b6d4;
     left: 50%;
     top: -16px;
     transform: translateX(-50%);

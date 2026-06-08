@@ -49,11 +49,16 @@
   let token = "";
   let authError = "";
   let isAuthenticated = false;
+  let isConnected = false;
   let selectedWidgetId: string | null = null;
-  let mediaLibraryOpen = false;
+  let activeRightTab: "settings" | "media" = "settings";
   let selectedMediaUrl = "";
+  let editingSceneId: string | null = null;
+  let editingSceneName = "";
+  let sceneActionMessage = "";
 
   $: activeScene = $canvasState?.scenes.find((scene) => scene.id === $canvasState.activeSceneId);
+  $: scenes = $canvasState?.scenes ?? [];
   $: widgets = activeScene?.widgets ?? [];
   $: selectedWidget = selectedWidgetId ? widgets.find((widget) => widget.id === selectedWidgetId) ?? null : null;
   $: if (selectedWidgetId && !widgets.some((widget) => widget.id === selectedWidgetId)) {
@@ -63,14 +68,24 @@
   function connectDashboard() {
     authError = "";
     isAuthenticated = false;
+    isConnected = false;
 
     socket?.disconnect();
     socket = io(window.location.origin);
     socket.emit(JOIN_EVENT, { role: "dashboard", token });
 
+    socket.on("connect", () => {
+      isConnected = true;
+    });
+
+    socket.on("disconnect", () => {
+      isConnected = false;
+    });
+
     socket.on(SocketEvents.AUTH_ERROR, (message: string) => {
       authError = message;
       isAuthenticated = false;
+      isConnected = false;
       selectedWidgetId = null;
       canvasState.set(null);
       socket?.disconnect();
@@ -81,7 +96,19 @@
       canvasState.set(nextState);
       isAuthenticated = true;
       authError = "";
+      isConnected = true;
     });
+  }
+
+  function logout() {
+    socket?.disconnect();
+    socket = null;
+    isConnected = false;
+    isAuthenticated = false;
+    selectedWidgetId = null;
+    canvasState.set(null);
+    authError = "";
+    token = "";
   }
 
   function createWidget(type: WidgetType): Widget {
@@ -136,6 +163,37 @@
     selectedWidgetId = event.detail;
   }
 
+  function switchScene(sceneId: string) {
+    if (!socket || !isAuthenticated) {
+      return;
+    }
+
+    socket.emit(SocketEvents.SCENE_CHANGE, { sceneId });
+  }
+
+  function getSceneName(scene: CanvasState["scenes"][number]): string {
+    if (editingSceneId === scene.id) {
+      return editingSceneName;
+    }
+
+    return scene.name;
+  }
+
+  function beginSceneRename(sceneId: string, currentName: string) {
+    editingSceneId = sceneId;
+    editingSceneName = currentName;
+    sceneActionMessage = "";
+  }
+
+  function saveSceneRename() {
+    editingSceneId = null;
+    sceneActionMessage = "Scene rename UI is available, but server-side rename is not implemented yet.";
+  }
+
+  function addScene() {
+    sceneActionMessage = "Add scene UI is available, but server-side scene creation is not implemented yet.";
+  }
+
   function handleMediaSelect(url: string) {
     selectedMediaUrl = url;
 
@@ -152,7 +210,7 @@
   }
 
   function openMediaLibrary() {
-    mediaLibraryOpen = true;
+    activeRightTab = "media";
   }
 
   onMount(() => {
@@ -163,37 +221,115 @@
   });
 </script>
 
-<main>
+<main class="min-h-screen bg-base-100 text-base-content">
   {#if !isAuthenticated}
-    <h1>Anomalist Dashboard Login</h1>
-    <p>Enter owner token to connect.</p>
-    <label for="token-input">Owner Token</label>
-    <input id="token-input" bind:value={token} type="text" placeholder="Owner token" />
-    <div class="actions">
-      <button type="button" on:click={connectDashboard}>Connect</button>
-    </div>
-    {#if authError}
-      <p class="error">{authError}</p>
-    {/if}
-  {:else}
-    <h1>Anomalist Dashboard</h1>
-    <section class="toolbar panel">
-      <div class="toolbar-top">
-        <h2>Canvas Controls</h2>
-        <p>
-          Widget count: <strong>{widgets.length}</strong>
-        </p>
-      </div>
-      <div class="actions toolbar-actions">
-        <button type="button" on:click={() => addWidget("text")}>Text</button>
-        <button type="button" on:click={() => addWidget("image")}>Image</button>
-        <button type="button" on:click={() => addWidget("timer")}>Timer</button>
-        <button type="button" on:click={() => addWidget("counter")}>Counter</button>
-      </div>
-    </section>
+    <div class="hero min-h-screen">
+      <div class="card w-full max-w-md bg-base-200 shadow-xl">
+        <div class="card-body gap-5">
+          <div class="text-center">
+            <div class="mx-auto mb-2 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary/20 text-primary">
+              <svg viewBox="0 0 24 24" class="h-7 w-7" fill="currentColor" aria-hidden="true">
+                <path d="M9 2a2 2 0 0 0-2 2v1.07A8 8 0 0 0 4 12v6a2 2 0 0 0 2 2h3v2h2v-2h2v2h2v-2h3a2 2 0 0 0 2-2v-6a8 8 0 0 0-3-6.93V4a2 2 0 0 0-2-2H9Zm0 2h6v1.24a8.08 8.08 0 0 0-6 0V4Zm-3 8a6 6 0 1 1 12 0v6H6v-6Z" />
+              </svg>
+            </div>
+            <h1 class="text-2xl font-semibold">Anomalist</h1>
+            <p class="mt-1 text-sm text-base-content/70">Enter your owner token to continue</p>
+          </div>
 
-    <section class="workspace">
-      <div class="canvas-column panel">
+          <label class="form-control w-full">
+            <span class="label-text mb-2">Owner Token</span>
+            <input
+              id="token-input"
+              bind:value={token}
+              type="password"
+              placeholder="Owner token"
+              class="input input-bordered w-full"
+            />
+          </label>
+
+          <button type="button" class="btn btn-primary w-full" on:click={connectDashboard}>Connect</button>
+
+          {#if authError}
+            <div class="alert alert-error text-sm">{authError}</div>
+          {/if}
+
+          <p class="text-center text-xs text-base-content/60">Self-hosted stream overlay control</p>
+        </div>
+      </div>
+    </div>
+  {:else}
+    <div class="navbar h-16 border-b border-base-300 bg-base-200 px-4">
+      <div class="navbar-start gap-3">
+        <div class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/20 text-primary">
+          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true">
+            <path d="M12 2 2 7l10 5 10-5-10-5Zm-7.5 8.5v5L12 20l7.5-4.5v-5L12 15l-7.5-4.5Z" />
+          </svg>
+        </div>
+        <span class="text-lg font-semibold">Anomalist</span>
+      </div>
+
+      <div class="navbar-end gap-3">
+        <div class="flex items-center gap-2 text-sm">
+          <span class={`inline-block h-2.5 w-2.5 rounded-full ${isConnected ? "bg-success" : "bg-error"}`}></span>
+          <span>{isConnected ? "Live" : "Disconnected"}</span>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" on:click={logout}>Logout</button>
+      </div>
+    </div>
+
+    <section class="grid min-h-[calc(100vh-4rem)] grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
+      <aside class="border-r border-base-300 bg-base-200 p-4">
+        <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-base-content/60">Widgets</p>
+        <div class="flex flex-col gap-1.5">
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("text")}>T Text</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("image")}>Photo Image</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("timer")}>Clock Timer</button>
+          <button type="button" class="btn btn-ghost justify-start" on:click={() => addWidget("counter")}># Counter</button>
+        </div>
+
+        <div class="divider my-4"></div>
+
+        <div class="mb-2 flex items-center justify-between">
+          <p class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Scenes</p>
+          <button type="button" class="btn btn-xs btn-primary" on:click={addScene}>+</button>
+        </div>
+        <div class="flex flex-col gap-2">
+          {#each scenes as scene (scene.id)}
+            <div class={`rounded-lg border p-2 ${scene.id === $canvasState?.activeSceneId ? "border-primary bg-primary/10" : "border-base-300"}`}>
+              {#if editingSceneId === scene.id}
+                <div class="flex items-center gap-2">
+                  <input
+                    class="input input-bordered input-xs w-full"
+                    bind:value={editingSceneName}
+                    on:keydown={(event) => event.key === "Enter" && saveSceneRename()}
+                  />
+                  <button type="button" class="btn btn-xs" on:click={saveSceneRename}>Save</button>
+                </div>
+              {:else}
+                <div class="flex items-center justify-between gap-2">
+                  <button type="button" class="btn btn-ghost btn-xs flex-1 justify-start" on:click={() => switchScene(scene.id)}>
+                    {getSceneName(scene)}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    aria-label="Rename scene"
+                    on:click={() => beginSceneRename(scene.id, scene.name)}
+                  >
+                    pencil
+                  </button>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        {#if sceneActionMessage}
+          <div class="alert alert-info mt-3 p-2 text-xs">{sceneActionMessage}</div>
+        {/if}
+      </aside>
+
+      <div class="flex items-center justify-center bg-base-100 p-4">
         {#if $canvasState && socket}
           <Canvas
             stagingState={$canvasState}
@@ -202,166 +338,66 @@
             on:select={handleCanvasSelect}
           />
         {:else}
-          <p>Waiting for canvas state...</p>
+          <span class="loading loading-dots loading-md"></span>
         {/if}
       </div>
 
-      <aside class="sidebar panel">
-        <h2>Settings</h2>
-        {#if selectedWidget}
-          <p>
-            Selected: <strong>{selectedWidget.type}</strong>
-          </p>
-          <div class="actions">
-            <button
-              type="button"
-              class="visibility-toggle"
-              on:click={() => {
-                if (socket && selectedWidget) {
-                  socket.emit(SocketEvents.WIDGET_UPDATE, {
-                    id: selectedWidget.id,
-                    visible: !selectedWidget.visible
-                  });
-                }
-              }}
-            >
-              {selectedWidget.visible ? "Hide" : "Show"}
-            </button>
-            <button type="button" class="danger" on:click={removeSelectedWidget}>Remove Widget</button>
-          </div>
+      <aside class="border-l border-base-300 bg-base-200 p-4">
+        <div class="tabs tabs-bordered mb-4">
+          <button type="button" class={`tab ${activeRightTab === "settings" ? "tab-active" : ""}`} on:click={() => (activeRightTab = "settings")}>Settings</button>
+          <button type="button" class={`tab ${activeRightTab === "media" ? "tab-active" : ""}`} on:click={() => (activeRightTab = "media")}>Media</button>
+        </div>
 
-          {#if selectedWidget.type === "text"}
-            <TextSettings widget={selectedWidget} {socket} />
-          {:else if selectedWidget.type === "image"}
-            <ImageSettings widget={selectedWidget} {socket} onOpenLibrary={openMediaLibrary} />
-          {:else if selectedWidget.type === "timer"}
-            <TimerSettings widget={selectedWidget} {socket} />
-          {:else if selectedWidget.type === "counter"}
-            <CounterSettings widget={selectedWidget} {socket} />
+        {#if activeRightTab === "settings"}
+          {#if selectedWidget}
+            <div class="flex flex-col gap-4">
+              <div class="flex items-center justify-between">
+                <span class="badge badge-primary badge-outline">{selectedWidget.type}</span>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  on:click={() => {
+                    if (socket && selectedWidget) {
+                      socket.emit(SocketEvents.WIDGET_UPDATE, {
+                        id: selectedWidget.id,
+                        visible: !selectedWidget.visible
+                      });
+                    }
+                  }}
+                >
+                  {selectedWidget.visible ? "Hide" : "Show"}
+                </button>
+              </div>
+
+              {#if selectedWidget.type === "text"}
+                <TextSettings widget={selectedWidget} {socket} />
+              {:else if selectedWidget.type === "image"}
+                <ImageSettings widget={selectedWidget} {socket} onOpenLibrary={openMediaLibrary} />
+              {:else if selectedWidget.type === "timer"}
+                <TimerSettings widget={selectedWidget} {socket} />
+              {:else if selectedWidget.type === "counter"}
+                <CounterSettings widget={selectedWidget} {socket} />
+              {/if}
+
+              <button type="button" class="btn btn-error btn-sm mt-2" on:click={removeSelectedWidget}>Remove Widget</button>
+            </div>
           {:else}
-            <p>No settings panel available for this widget type.</p>
+            <div class="flex min-h-[220px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 text-center text-base-content/60">
+              <div class="text-2xl">ghost</div>
+              <p>Select a widget to edit</p>
+            </div>
           {/if}
         {:else}
-          <p>Select a widget to edit its settings.</p>
-        {/if}
-
-        <details class="media-section" bind:open={mediaLibraryOpen}>
-          <summary>Media Library</summary>
           <MediaLibrary onSelect={handleMediaSelect} />
 
-          {#if !selectedWidget}
-            <label>
-              Selected URL
-              <input value={selectedMediaUrl} readonly on:focus={(event) => event.currentTarget.select()} />
+          {#if !selectedWidget || selectedWidget.type !== "image"}
+            <label class="form-control mt-3">
+              <span class="label-text mb-1">Selected URL</span>
+              <input class="input input-bordered input-sm" value={selectedMediaUrl} readonly on:focus={(event) => event.currentTarget.select()} />
             </label>
           {/if}
-        </details>
+        {/if}
       </aside>
     </section>
   {/if}
 </main>
-
-<style>
-  main {
-    font-family: sans-serif;
-    max-width: 1400px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-  }
-
-  .panel {
-    border: 1px solid #dadde4;
-    border-radius: 10px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    background: #fff;
-  }
-
-  .workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 1rem;
-    align-items: start;
-  }
-
-  .canvas-column {
-    min-height: 620px;
-  }
-
-  .sidebar {
-    position: sticky;
-    top: 1rem;
-  }
-
-  .toolbar {
-    margin-bottom: 1rem;
-  }
-
-  .toolbar-top {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .toolbar-actions {
-    margin-bottom: 0;
-  }
-
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.65rem;
-    margin-bottom: 1rem;
-  }
-
-  input {
-    display: block;
-    width: 100%;
-    max-width: 420px;
-    margin-top: 0.5rem;
-    margin-bottom: 1rem;
-    padding: 0.5rem;
-  }
-
-  .error {
-    color: #b00020;
-    font-weight: 600;
-  }
-
-  .danger {
-    background: #e5484d;
-    color: #fff;
-    border-color: #e5484d;
-  }
-
-  .visibility-toggle {
-    background: #7c5cbf;
-    color: #fff;
-    border-color: #7c5cbf;
-  }
-
-  .media-section {
-    margin-top: 1rem;
-    border-top: 1px solid #e5e8ef;
-    padding-top: 0.75rem;
-  }
-
-  .media-section summary {
-    cursor: pointer;
-    font-weight: 600;
-    margin-bottom: 0.75rem;
-  }
-
-  @media (max-width: 1100px) {
-    .workspace {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-      position: static;
-    }
-  }
-</style>

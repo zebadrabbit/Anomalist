@@ -66,19 +66,20 @@
   }
 </script>
 
-<section>
-  <label>
-    Mode
-    <select value={mode} on:change={(event) => emitProp("mode", event.currentTarget.value)}>
+<section class="flex flex-col gap-3">
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Mode</span>
+    <select class="select select-bordered select-sm w-full" value={mode} on:change={(event) => emitProp("mode", event.currentTarget.value)}>
       <option value="stopwatch">Stopwatch</option>
       <option value="countdown">Countdown</option>
     </select>
   </label>
 
   {#if mode === "countdown"}
-    <label>
-      Duration (seconds)
+    <label class="form-control w-full">
+      <span class="label-text mb-1">Duration (seconds)</span>
       <input
+        class="input input-bordered input-sm w-full"
         type="number"
         min="0"
         value={durationSeconds}
@@ -87,10 +88,11 @@
     </label>
   {/if}
 
-  <div class="actions">
-    <button type="button" on:click={() => emitPropsImmediate({ running: true })} disabled={running}>Start</button>
-    <button type="button" on:click={() => emitPropsImmediate({ running: false })} disabled={!running}>Stop</button>
+  <div class="flex flex-wrap gap-2">
+    <button class="btn btn-sm btn-primary" type="button" on:click={() => emitPropsImmediate({ running: true })} disabled={running}>Start</button>
+    <button class="btn btn-sm" type="button" on:click={() => emitPropsImmediate({ running: false })} disabled={!running}>Stop</button>
     <button
+      class="btn btn-sm"
       type="button"
       on:click={() => emitPropsImmediate({ running: false, durationSeconds: originalDuration })}
     >
@@ -98,9 +100,10 @@
     </button>
   </div>
 
-  <label>
-    Font Size
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Font Size</span>
     <input
+      class="input input-bordered input-sm w-full"
       type="number"
       min="8"
       value={fontSize}
@@ -108,30 +111,15 @@
     />
   </label>
 
-  <label>
-    Color
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Color</span>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-2">
     <input
+      class="h-8 w-full"
       type="color"
       value={color}
       on:input={(event) => emitProp("color", event.currentTarget.value)}
     />
+    </div>
   </label>
 </section>
-
-<style>
-  section {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  label {
-    display: grid;
-    gap: 0.35rem;
-    font-size: 0.95rem;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-</style>

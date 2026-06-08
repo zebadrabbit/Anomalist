@@ -95,12 +95,13 @@
   });
 </script>
 
-<section class="library">
-  <div class="library-header">
-    <h3>Media Library</h3>
-    <label class="upload-button" aria-disabled={isUploading}>
+<section class="flex flex-col gap-3">
+  <div class="flex items-center justify-between gap-2">
+    <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/70">Media Library</h3>
+    <label class={`btn btn-sm btn-primary ${isUploading ? "btn-disabled" : ""}`} aria-disabled={isUploading}>
       {isUploading ? "Uploading..." : "Upload"}
       <input
+        class="hidden"
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/mpeg,video/webm,.jpg,.jpeg,.png,.gif,.webp,.mp4,.mpeg,.webm"
         disabled={isUploading}
@@ -109,142 +110,50 @@
     </label>
   </div>
 
+  <label class="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-base-300 bg-base-100 px-4 py-5 text-sm text-base-content/70 hover:border-primary hover:text-primary">
+    {isUploading ? "Uploading..." : "Drop file here or click to upload"}
+    <input
+      class="hidden"
+      type="file"
+      accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/mpeg,video/webm,.jpg,.jpeg,.png,.gif,.webp,.mp4,.mpeg,.webm"
+      disabled={isUploading}
+      on:change={handleUpload}
+    />
+  </label>
+
   {#if error}
-    <p class="error">{error}</p>
+    <div class="alert alert-error text-sm">{error}</div>
   {/if}
 
   {#if isLoading}
-    <p>Loading media...</p>
+    <div class="flex items-center gap-2 text-sm text-base-content/70">
+      <span class="loading loading-spinner loading-sm"></span>
+      Loading media...
+    </div>
   {:else if items.length === 0}
-    <p>No media uploaded yet.</p>
+    <p class="text-sm text-base-content/70">No media uploaded yet.</p>
   {:else}
-    <div class="media-grid">
+    <div class="grid grid-cols-2 gap-2">
       {#each items as item (item.id)}
-        <div class="media-card">
+        <div class="group relative overflow-hidden rounded-lg border border-base-300 bg-base-100">
           <button
             type="button"
-            class="delete"
+            class="btn btn-circle btn-xs btn-error absolute right-1 top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100"
             on:click|stopPropagation={() => handleDelete(item.id)}
             aria-label={`Delete ${item.originalName}`}
           >
             x
           </button>
-          <button type="button" class="select" on:click={() => onSelect?.(item.url)}>
+          <button type="button" class="w-full text-left" on:click={() => onSelect?.(item.url)}>
             {#if isVideo(item)}
-              <video src={item.url} muted autoplay loop playsinline></video>
+              <video class="block aspect-video w-full bg-neutral object-cover" src={item.url} muted autoplay loop playsinline></video>
             {:else}
-              <img src={item.url} alt={item.originalName} loading="lazy" />
+              <img class="block aspect-video w-full bg-neutral object-cover" src={item.url} alt={item.originalName} loading="lazy" />
             {/if}
-            <span class="name" title={item.originalName}>{item.originalName}</span>
+            <span class="block truncate px-2 py-1 text-xs" title={item.originalName}>{item.originalName}</span>
           </button>
         </div>
       {/each}
     </div>
   {/if}
 </section>
-
-<style>
-  .library {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  .library-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-
-  .upload-button {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid #c7ceda;
-    border-radius: 8px;
-    padding: 0.35rem 0.7rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    background: #f8f9fc;
-  }
-
-  .upload-button[aria-disabled="true"] {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .upload-button input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
-  }
-
-  .media-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.6rem;
-  }
-
-  .media-card {
-    position: relative;
-    border: 1px solid #d8deea;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #fff;
-  }
-
-  .select {
-    width: 100%;
-    border: 0;
-    background: transparent;
-    padding: 0;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .media-card img,
-  .media-card video {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    object-fit: cover;
-    display: block;
-    background: #0f172a;
-  }
-
-  .name {
-    display: block;
-    font-size: 0.78rem;
-    padding: 0.4rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .delete {
-    position: absolute;
-    top: 0.35rem;
-    right: 0.35rem;
-    width: 1.2rem;
-    height: 1.2rem;
-    border-radius: 999px;
-    border: 0;
-    background: rgba(10, 10, 10, 0.7);
-    color: #fff;
-    font-size: 0.75rem;
-    line-height: 1.2rem;
-    text-align: center;
-    z-index: 1;
-    cursor: pointer;
-  }
-
-  .error {
-    color: #b00020;
-    font-size: 0.9rem;
-    margin: 0;
-  }
-</style>

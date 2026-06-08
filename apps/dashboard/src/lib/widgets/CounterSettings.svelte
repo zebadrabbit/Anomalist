@@ -58,15 +58,16 @@
   $: color = asString(widget.props.color, "#ffffff");
 </script>
 
-<section>
-  <div class="counter-actions">
-    <button type="button" class="big" on:click={() => emitPropsImmediate({ value: value - step })}>-</button>
-    <button type="button" class="big" on:click={() => emitPropsImmediate({ value: value + step })}>+</button>
+<section class="flex flex-col gap-3">
+  <div class="flex gap-2">
+    <button type="button" class="btn btn-sm btn-primary" on:click={() => emitPropsImmediate({ value: value - step })}>-</button>
+    <button type="button" class="btn btn-sm btn-primary" on:click={() => emitPropsImmediate({ value: value + step })}>+</button>
   </div>
 
-  <label>
-    Step
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Step</span>
     <input
+      class="input input-bordered input-sm w-full"
       type="number"
       min="1"
       value={step}
@@ -74,14 +75,15 @@
     />
   </label>
 
-  <label>
-    Label
-    <input value={label} on:input={(event) => emitProp("label", event.currentTarget.value)} />
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Label</span>
+    <input class="input input-bordered input-sm w-full" value={label} on:input={(event) => emitProp("label", event.currentTarget.value)} />
   </label>
 
-  <label>
-    Font Size
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Font Size</span>
     <input
+      class="input input-bordered input-sm w-full"
       type="number"
       min="8"
       max="200"
@@ -90,35 +92,12 @@
     />
   </label>
 
-  <label>
-    Color
-    <input type="color" value={color} on:input={(event) => emitProp("color", event.currentTarget.value)} />
+  <label class="form-control w-full">
+    <span class="label-text mb-1">Color</span>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-2">
+      <input class="h-8 w-full" type="color" value={color} on:input={(event) => emitProp("color", event.currentTarget.value)} />
+    </div>
   </label>
 
-  <button type="button" on:click={() => emitPropsImmediate({ value: 0 })}>Reset</button>
+  <button class="btn btn-sm" type="button" on:click={() => emitPropsImmediate({ value: 0 })}>Reset</button>
 </section>
-
-<style>
-  section {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  label {
-    display: grid;
-    gap: 0.35rem;
-    font-size: 0.95rem;
-  }
-
-  .counter-actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .big {
-    min-width: 3rem;
-    min-height: 2.5rem;
-    font-size: 1.4rem;
-    font-weight: 700;
-  }
-</style>
