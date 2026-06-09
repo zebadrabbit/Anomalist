@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { addToast } from "./stores/toast.js";
 
   interface MediaItem {
     id: string;
@@ -111,12 +112,12 @@
     try {
       const response = await fetch("/api/media");
       if (!response.ok) {
-        throw new Error("Failed to load media library");
+        throw new Error("Couldn't load your media library.");
       }
 
       items = (await response.json()) as MediaItem[];
     } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to load media library";
+      error = err instanceof Error ? err.message : "Couldn't load your media library.";
     } finally {
       isLoading = false;
     }
@@ -145,12 +146,12 @@
         const payload = (await response.json().catch(() => ({ error: "Upload failed" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Upload failed");
+        throw new Error(payload.error ?? "Upload failed. Try a different file.");
       }
 
       await refreshItems();
     } catch (err) {
-      error = err instanceof Error ? err.message : "Upload failed";
+      error = err instanceof Error ? err.message : "Upload failed. Try a different file.";
     } finally {
       isUploading = false;
       input.value = "";
@@ -164,12 +165,34 @@
         method: "DELETE"
       });
       if (!response.ok) {
-        throw new Error("Failed to delete media");
+        throw new Error("Couldn't delete media item.");
       }
 
       await refreshItems();
     } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to delete media";
+      error = err instanceof Error ? err.message : "Couldn't delete media item.";
+    }
+  }
+
+  async function copyUrl(filename: string): Promise<void> {
+    const url = `/media/${filename}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      addToast("success", `Copied: ${url}`);
+      return;
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(el);
+
+      if (copied) {
+        addToast("success", `Copied: ${url}`);
+      } else {
+        addToast("error", "Unable to copy URL");
+      }
     }
   }
 
@@ -226,11 +249,28 @@
       Loading media...
     </div>
   {:else if filteredItems.length === 0}
-    <p class="text-sm text-base-content/70">No media uploaded yet.</p>
+    <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-base-300 bg-base-100/40 px-4 py-10 text-center text-base-content/70">
+      <div class="text-4xl leading-none opacity-70">📁</div>
+      <p class="mt-2 text-base font-medium">No media yet.</p>
+      <p class="mt-1 max-w-[24ch] text-sm">Upload images, audio, or video to use in your widgets.</p>
+    </div>
   {:else}
     <div class="grid grid-cols-2 gap-2">
       {#each filteredItems as item (item.id)}
         <div class="group relative overflow-hidden rounded-lg border border-base-300 bg-base-100">
+          <div class="tooltip tooltip-left absolute right-8 top-1 z-10" data-tip={`/media/${item.filename}`}>
+            <button
+              type="button"
+              class="btn btn-circle btn-xs absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100"
+              on:click|stopPropagation={() => copyUrl(item.filename)}
+              aria-label={`Copy URL for ${item.originalName}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-3.5 w-3.5">
+                <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
           <button
             type="button"
             class="btn btn-circle btn-xs btn-error absolute right-1 top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100"

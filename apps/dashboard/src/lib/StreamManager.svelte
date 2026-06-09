@@ -61,7 +61,7 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to load stream" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to load stream");
+        throw new Error(payload.error ?? "Couldn't load stream details.");
       }
 
       const payload = (await response.json()) as StreamInfo;
@@ -72,7 +72,7 @@
       };
       titleInput = streamInfo.title;
     } catch (error) {
-      streamError = error instanceof Error ? error.message : "Failed to load stream";
+      streamError = error instanceof Error ? error.message : "Couldn't load stream details.";
     } finally {
       loadingStream = false;
     }
@@ -101,10 +101,10 @@
         throw new Error(payload.details ? `${payload.error ?? "Failed to update title"}: ${payload.details}` : (payload.error ?? "Failed to update title"));
       }
 
-      addToast("success", "Stream title updated.");
+      addToast("success", "Stream title saved.");
       await loadStream();
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to update title");
+      addToast("error", error instanceof Error ? error.message : "Couldn't update stream title.");
     } finally {
       titleUpdating = false;
     }
@@ -128,14 +128,14 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to search games" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to search games");
+        throw new Error(payload.error ?? "Couldn't search categories right now.");
       }
 
       const payload = (await response.json()) as GameResult[];
       searchResults = Array.isArray(payload) ? payload : [];
     } catch (error) {
       searchResults = [];
-      addToast("error", error instanceof Error ? error.message : "Failed to search games");
+      addToast("error", error instanceof Error ? error.message : "Couldn't search categories right now.");
     } finally {
       searchLoading = false;
     }
@@ -173,12 +173,12 @@
         throw new Error(payload.details ? `${payload.error ?? "Failed to update category"}: ${payload.details}` : (payload.error ?? "Failed to update category"));
       }
 
-      addToast("success", "Category updated.");
+      addToast("success", "Category saved.");
       await loadStream();
       searchResults = [];
       searchQuery = "";
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to update category");
+      addToast("error", error instanceof Error ? error.message : "Couldn't update category.");
     } finally {
       categoryUpdating = false;
     }

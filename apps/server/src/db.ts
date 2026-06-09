@@ -204,6 +204,10 @@ const upsertSettingStmt = db.prepare(`
   VALUES (?, ?)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value
 `);
+const listSettingsStmt = db.prepare(`
+  SELECT key, value
+  FROM settings
+`);
 
 const selectTwitchConfigStmt = db.prepare(`
   SELECT twitch_user_id, twitch_login, twitch_display_name, access_token, refresh_token, expires_at
@@ -359,6 +363,10 @@ export function getSetting(key: string): string | null {
 
 export function setSetting(key: string, value: string): void {
   upsertSettingStmt.run(key, value);
+}
+
+export function listSettings(): Array<{ key: string; value: string }> {
+  return listSettingsStmt.all() as Array<{ key: string; value: string }>;
 }
 
 export function getTwitchConfig(): TwitchConfig | null {

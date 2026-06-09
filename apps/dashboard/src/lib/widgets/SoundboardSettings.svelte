@@ -24,12 +24,18 @@
 
     return value
       .filter((item): item is Partial<SoundEntry> => !!item && typeof item === "object")
-      .map((item) => ({
-        id: asString(item.id, crypto.randomUUID()),
-        name: asString(item.name, "Sound"),
-        url: asString(item.url, ""),
-        volume: Math.min(1, Math.max(0, asNumber(item.volume, 1)))
-      }))
+      .map((item) => {
+        const url = asString(item.url, "");
+        const legacyName = asString((item as { name?: unknown }).name, "");
+        const fallbackLabel = fileNameWithoutExtension(url) || legacyName || "Sound";
+
+        return {
+          id: asString(item.id, crypto.randomUUID()),
+          label: asString(item.label, fallbackLabel),
+          url,
+          volume: Math.min(1, Math.max(0, asNumber(item.volume, 1)))
+        };
+      })
       .filter((item) => item.url.startsWith("/media/"));
   }
 
@@ -74,7 +80,7 @@
       ...sounds,
       {
         id: crypto.randomUUID(),
-        name: fileNameWithoutExtension(url),
+        label: fileNameWithoutExtension(url) || "Sound",
         url,
         volume: 1
       }
@@ -99,7 +105,7 @@
 
 <section class="flex flex-col gap-4">
   <div class="flex items-center justify-between">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/70">Soundboard Controls</h3>
+    <h3 class="text-sm font-semibold text-base-content/80">Soundboard controls</h3>
     <button type="button" class="btn btn-sm" on:click={() => (showAudioPicker = !showAudioPicker)}>
       {showAudioPicker ? "Close Library" : "Add Sound"}
     </button>
@@ -111,54 +117,66 @@
     </div>
   {/if}
 
-  <label class="form-control w-full">
-    <span class="label-text mb-1">Columns ({columns})</span>
-    <input
-      class="range range-primary range-sm"
-      type="range"
-      min="1"
-      max="6"
-      step="1"
-      value={columns}
-      on:input={(event) => updateProps({ columns: Number(event.currentTarget.value) })}
-    />
-  </label>
+  <div class="rounded-lg border border-base-300 p-3">
+    <div class="mb-2 text-xs font-medium text-base-content/60">Appearance</div>
 
-  <div class="grid grid-cols-2 gap-3">
-    <label class="form-control w-full">
-      <span class="label-text mb-1">Button Color</span>
-      <input class="h-9 w-full" type="color" value={buttonColor} on:input={(event) => updateProps({ buttonColor: event.currentTarget.value })} />
-    </label>
+    <div class="mb-3 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm">
+      <span class="text-base-content/70">Columns</span>
+      <input
+        class="range range-primary range-sm"
+        type="range"
+        min="1"
+        max="6"
+        step="1"
+        value={columns}
+        on:input={(event) => updateProps({ columns: Number(event.currentTarget.value) })}
+      />
+      <span class="text-xs text-base-content/60">{columns}</span>
+    </div>
 
-    <label class="form-control w-full">
-      <span class="label-text mb-1">Text Color</span>
-      <input class="h-9 w-full" type="color" value={buttonTextColor} on:input={(event) => updateProps({ buttonTextColor: event.currentTarget.value })} />
-    </label>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <label class="form-control w-full">
+        <span class="label-text mb-1 text-base-content/70">Button</span>
+        <input class="h-9 w-full" type="color" value={buttonColor} on:input={(event) => updateProps({ buttonColor: event.currentTarget.value })} />
+      </label>
+
+      <label class="form-control w-full">
+        <span class="label-text mb-1 text-base-content/70">Text</span>
+        <input class="h-9 w-full" type="color" value={buttonTextColor} on:input={(event) => updateProps({ buttonTextColor: event.currentTarget.value })} />
+      </label>
+    </div>
   </div>
 
-  <div class="space-y-2">
+  <div>
+    <div class="mb-2 text-xs font-medium text-base-content/60">Sounds</div>
+
+    <div class="space-y-2">
     {#if sounds.length === 0}
       <div class="rounded-lg border border-dashed border-base-300 p-3 text-sm text-base-content/70">
         Add sounds from your media library to build your board.
       </div>
     {:else}
       {#each sounds as sound, index (sound.id)}
-        <div class="rounded-lg border border-base-300 p-2">
-          <div class="mb-2 flex items-center gap-2">
+        <div class="rounded-lg border border-base-300 px-2 py-2">
+          <div class="flex items-center gap-2">
             <input
               class="input input-bordered input-sm flex-1"
-              value={sound.name}
-              on:input={(event) => updateSound(index, { name: event.currentTarget.value })}
+              placeholder="Sound label"
+              value={sound.label}
+              on:input={(event) => updateSound(index, { label: event.currentTarget.value })}
             />
-            <button type="button" class="btn btn-xs" on:click={() => playSound(sound)}>Play</button>
-            <button type="button" class="btn btn-xs btn-error" on:click={() => removeSound(index)} aria-label={`Remove ${sound.name}`}>
-              x
+            <button type="button" class="btn btn-xs" on:click={() => playSound(sound)} aria-label={`Test ${sound.label}`}>
+              ▶
+            </button>
+            <button type="button" class="btn btn-xs btn-error" on:click={() => removeSound(index)} aria-label={`Remove ${sound.label}`}>
+              ×
             </button>
           </div>
-          <label class="form-control w-full">
-            <span class="label-text mb-1">Volume ({sound.volume.toFixed(2)})</span>
+
+          <div class="mt-1 flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Vol: {sound.volume.toFixed(2)}</span>
             <input
-              class="range range-primary range-xs"
+              class="range range-primary range-xs w-full"
               type="range"
               min="0"
               max="1"
@@ -166,25 +184,10 @@
               value={sound.volume}
               on:input={(event) => updateSound(index, { volume: Number(event.currentTarget.value) })}
             />
-          </label>
+          </div>
         </div>
       {/each}
     {/if}
-  </div>
-
-  <div>
-    <h4 class="mb-2 text-sm font-semibold">Soundboard Grid Preview</h4>
-    <div class="grid gap-2" style={`grid-template-columns:repeat(${columns}, minmax(0, 1fr));`}>
-      {#each sounds as sound (sound.id)}
-        <button
-          type="button"
-          class="btn btn-sm"
-          style={`background:${buttonColor};color:${buttonTextColor};border-color:transparent;`}
-          on:click={() => playSound(sound)}
-        >
-          {sound.name}
-        </button>
-      {/each}
     </div>
   </div>
 </section>

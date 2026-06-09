@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import type { Socket } from "socket.io-client";
+  import FontPicker from "../FontPicker.svelte";
 
   export let widget: Widget;
   export let socket: Socket | null;
@@ -48,6 +49,7 @@
   $: content = asString(widget.props.content, "Marquee text");
   $: speed = Math.max(5, Math.min(120, Math.floor(asNumber(widget.props.speed, 20))));
   $: direction = asString(widget.props.direction, "left") === "right" ? "right" : "left";
+  $: fontFamily = asString(widget.props.fontFamily, "Arial");
   $: fontSize = Math.max(8, asNumber(widget.props.fontSize, 24));
   $: color = asString(widget.props.color, "#ffffff");
   $: backgroundColor = asString(widget.props.backgroundColor, "transparent");
@@ -65,6 +67,8 @@
       on:input={(event) => emitProp("content", event.currentTarget.value)}
     ></textarea>
   </label>
+
+  <FontPicker value={fontFamily} on:change={(event) => emitProp("fontFamily", event.detail)} />
 
   <label class="form-control w-full">
     <span class="label-text mb-1">Speed ({speed}s)</span>

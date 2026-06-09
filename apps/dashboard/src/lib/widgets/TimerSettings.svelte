@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import type { Socket } from "socket.io-client";
+  import FontPicker from "../FontPicker.svelte";
 
   export let widget: Widget;
   export let socket: Socket | null;
@@ -54,6 +55,7 @@
   $: mode = asString(widget.props.mode, "stopwatch") === "countdown" ? "countdown" : "stopwatch";
   $: durationSeconds = Math.max(0, Math.floor(asNumber(widget.props.durationSeconds, 60)));
   $: running = widget.props.running === true;
+  $: fontFamily = asString(widget.props.fontFamily, "Arial");
   $: fontSize = asNumber(widget.props.fontSize, 32);
   $: color = asString(widget.props.color, "#ffffff");
 </script>
@@ -98,6 +100,8 @@
       Reset
     </button>
   </div>
+
+  <FontPicker value={fontFamily} on:change={(event) => emitProp("fontFamily", event.detail)} />
 
   <label class="form-control w-full">
     <span class="label-text mb-1">Font Size</span>

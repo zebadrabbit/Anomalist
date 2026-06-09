@@ -76,6 +76,18 @@ Your credentials are stored locally on your own Anomalist server. They are only 
 
 You should see it appear in OBS immediately.
 
+## Navigating the Canvas
+
+The dashboard gives you two side panels around the canvas:
+- Left sidebar: widget list, scenes, presets, and quick navigation tools.
+- Right sidebar: widget settings, media library, and layers.
+
+Both sidebars can be collapsed if you want more canvas space.
+
+Layers panel tip:
+- Open Layers to reorder widget stack (what appears in front/behind).
+- Drag items to reorder, or use the up/down controls.
+
 ## Giving mods access
 
 Open User Management (gear icon), create a moderator account, then share the dashboard URL and their login.

@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import type { Socket } from "socket.io-client";
+  import FontPicker from "../FontPicker.svelte";
 
   export let widget: Widget;
   export let socket: Socket | null;
@@ -41,6 +42,7 @@
   }
 
   $: content = asString(widget.props.content, "Text");
+  $: fontFamily = asString(widget.props.fontFamily, "Arial");
   $: fontSize = asNumber(widget.props.fontSize, 24);
   $: color = asString(widget.props.color, "#ffffff");
   $: fontWeight = asString(widget.props.fontWeight, "normal");
@@ -53,6 +55,8 @@
     <span class="label-text mb-1">Content</span>
     <input class="input input-bordered input-sm w-full" value={content} on:input={(event) => emitProp("content", event.currentTarget.value)} />
   </label>
+
+  <FontPicker value={fontFamily} on:change={(event) => emitProp("fontFamily", event.detail)} />
 
   <label class="form-control w-full">
     <span class="label-text mb-1">Font Size</span>

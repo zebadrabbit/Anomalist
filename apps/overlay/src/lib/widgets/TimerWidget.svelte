@@ -3,6 +3,7 @@
   import type { Widget } from "@anomalist/types";
 
   export let widget: Widget;
+  export let textStyle: string = "";
 
   let now = Date.now();
   let interval = setInterval(() => {
@@ -18,6 +19,24 @@
 
   function asNumber(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+
+  function normalizeFontName(value: unknown): string {
+    if (typeof value !== "string") {
+      return "";
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    const withoutFallback = trimmed.split(",")[0]?.trim() ?? "";
+    return withoutFallback.replace(/^['\"]+|['\"]+$/g, "").trim();
+  }
+
+  function fontFamilyStyle(name: string): string {
+    return name ? `'${name.replace(/'/g, "\\'")}', sans-serif` : "inherit";
   }
 
   function pad(value: number): string {
@@ -36,6 +55,7 @@
   $: startedAt = asNumber(widget.props.startedAt, 0);
   $: resetAt = asNumber(widget.props.resetAt, 0);
   $: running = widget.props.running === true;
+  $: fontFamily = normalizeFontName(widget.props.fontFamily);
   $: fontSize = Math.max(8, asNumber(widget.props.fontSize, 32));
   $: color = asString(widget.props.color, "#ffffff");
 
@@ -66,7 +86,7 @@
 </script>
 
 <div
-  style={`width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${color};font-variant-numeric:tabular-nums;`}
+  style={`width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;color:${color};`}
 >
-  {formatTime(displaySeconds)}
+  <span style={`display:inline-block;font-family:${fontFamilyStyle(fontFamily)};${textStyle}`}>{formatTime(displaySeconds)}</span>
 </div>

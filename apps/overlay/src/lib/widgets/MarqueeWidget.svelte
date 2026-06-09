@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
 
   export let widget: Widget;
+  export let textStyle: string = "";
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -15,6 +16,24 @@
     return typeof value === "boolean" ? value : fallback;
   }
 
+  function normalizeFontName(value: unknown): string {
+    if (typeof value !== "string") {
+      return "";
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    const withoutFallback = trimmed.split(",")[0]?.trim() ?? "";
+    return withoutFallback.replace(/^['\"]+|['\"]+$/g, "").trim();
+  }
+
+  function fontFamilyStyle(name: string): string {
+    return name ? `'${name.replace(/'/g, "\\'")}', sans-serif` : "inherit";
+  }
+
   $: content = asString(widget.props.content, "Marquee text");
   $: speed = Math.max(5, Math.min(120, Math.floor(asNumber(widget.props.speed, 20))));
   $: direction = asString(widget.props.direction, "left") === "right" ? "right" : "left";
@@ -22,12 +41,13 @@
   $: color = asString(widget.props.color, "#ffffff");
   $: backgroundColor = asString(widget.props.backgroundColor, "transparent");
   $: pauseOnHover = asBoolean(widget.props.pauseOnHover, false);
+  $: fontFamily = normalizeFontName(widget.props.fontFamily);
 </script>
 
 <div class="marquee-shell" style={`background:${backgroundColor};`}>
   <span
     class={`marquee-content ${direction === "right" ? "reverse" : ""} ${pauseOnHover ? "pause-on-hover" : ""}`}
-    style={`animation-duration:${speed}s;font-size:${fontSize}px;color:${color};`}
+    style={`display:inline-block;animation-duration:${speed}s;font-size:${fontSize}px;color:${color};font-family:${fontFamilyStyle(fontFamily)};${textStyle}`}
   >
     {content}
   </span>

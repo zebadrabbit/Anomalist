@@ -11,6 +11,45 @@ Widgets are the building blocks of your overlay. Add them in the dashboard, tune
 5. Click Push to Live to send the changes to your OBS overlay.
 6. To remove a widget, select it and click Remove Widget.
 
+## Fonts Across Text Widgets
+
+Text, Timer, Counter, Marquee, and Clock widgets all include a Font picker.
+
+How to use it:
+1. Select your widget on the canvas.
+2. Open its settings in the right panel.
+3. Pick a font from the Font dropdown.
+4. Check the preview line in the settings panel to see how it looks.
+
+You do not need to install fonts yourself. Google Fonts are loaded automatically when you choose one.
+
+## CSS Effects (Per Widget)
+
+Most visual widgets support quick effects in the Effects panel:
+- Glow: adds a soft colored light around the widget.
+- Drop Shadow: adds depth and separation from the background.
+- Text Outline: adds an edge around letters for readability.
+- Gradient Text: fills text with a color gradient.
+
+Important: Text Outline and Gradient Text cannot both be active at once. If Gradient Text is enabled, it takes priority.
+
+Tip: try subtle values first, then increase until it reads well in your stream scene.
+
+## Entrance Animations
+
+Entrance animations play when you turn a widget visible.
+
+Available styles include fade, slide directions, pop, and bounce.
+
+How to set it:
+1. Select a widget.
+2. In settings, open the Animation section.
+3. Choose the animation type.
+4. Adjust duration.
+5. Toggle the widget visible to preview.
+
+These animations play in both the live overlay and the dashboard canvas preview.
+
 ## Text Widget
 
 The Text widget shows words on screen, like alerts, instructions, or segment titles.
@@ -85,7 +124,7 @@ How to use it:
 1. Add a Soundboard widget from the Add Widget list.
 2. Select it, open settings, and click Add Sound.
 3. Pick audio files from the media library (Audio tab).
-4. Set sound names and per-sound volume.
+4. Set friendly sound labels and per-sound volume.
 5. Trigger sounds from the Soundboard grid in settings or from the persistent Sounds section in the sidebar.
 
 OBS audio note:
@@ -111,6 +150,25 @@ Settings:
 - Message Timeout: remove messages after N seconds (`0` keeps them forever).
 
 The Chat Feed only shows Twitch chat messages. It does not pull messages from other platforms.
+
+## Particle Emitter Widget
+
+The Particle Emitter widget creates animated particles inside the widget area.
+
+Think of it like a visual effect layer you can place where you want motion.
+
+Presets:
+- Sparkles: light twinkling points.
+- Snow: soft falling flakes.
+- Confetti: colorful burst-style pieces.
+- Fire: rising ember-like particles.
+
+Controls:
+- Speed: how fast particles move.
+- Density: how many particles are on screen.
+- Opacity: how transparent or solid particles look.
+
+Tip: make the widget large and place it over the part of the screen you want covered.
 
 ## Custom HTML Widget
 

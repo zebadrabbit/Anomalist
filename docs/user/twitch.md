@@ -13,7 +13,7 @@ The chatbot lets your channel chat control parts of your overlay with simple com
 
 Available commands:
 - `!sound [name]`: any viewer can play a soundboard sound.
-The name must match a sound you added in a Soundboard widget.
+The name should match the sound label you set in a Soundboard widget.
 - `!counter [label] +/-`: moderators (and you) can increase or decrease a Counter widget.
 
 How to enable:
@@ -21,6 +21,19 @@ How to enable:
 2. Open Settings (gear icon).
 3. In Twitch Integration, find Chatbot.
 4. Click Enable Chatbot.
+
+### Change command prefix
+
+You can change the command prefix (default is `!`).
+
+How to change it:
+1. Open Settings (gear icon).
+2. Go to Twitch Integration.
+3. Find Command Prefix in the Chatbot area.
+4. Enter your new prefix (for example `$` or `?`).
+5. Click Save Prefix.
+
+After saving, commands use your new prefix right away.
 
 Tip: the chatbot uses your own Twitch account right now, so chat activity appears through your channel identity. A separate bot account flow may be added in a future version.
 

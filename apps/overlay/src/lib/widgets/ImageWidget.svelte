@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
 
   export let widget: Widget;
+  export let imageFilter: string = "";
 
   function asString(value: unknown, fallback: string): string {
     return typeof value === "string" ? value : fallback;
@@ -36,13 +37,13 @@
 </script>
 
 <div
-  style={`width:100%;height:100%;opacity:${opacity};border-radius:${borderRadius}px;overflow:hidden;box-sizing:border-box;`}
+  style={`width:100%;height:100%;border-radius:${borderRadius}px;overflow:hidden;box-sizing:border-box;`}
 >
   {#if url}
     <img
       src={url}
       alt={altText}
-      style="width:100%;height:100%;object-fit:contain;display:block;"
+      style={`width:100%;height:100%;object-fit:contain;display:block;opacity:${opacity};${imageFilter}`}
     />
   {:else}
     <div

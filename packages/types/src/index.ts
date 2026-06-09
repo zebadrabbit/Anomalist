@@ -7,6 +7,8 @@ export interface Widget {
   height: number;
   rotation: number;
   visible: boolean;
+  locked?: boolean;
+  createdBy?: string;
   layerId: string;
   props: Record<string, unknown>;
 }
@@ -48,7 +50,7 @@ export interface User {
 
 export interface SoundEntry {
   id: string;
-  name: string;
+  label: string;
   url: string;
   volume: number;
 }
@@ -79,10 +81,13 @@ export const SocketEvents = {
   TWITCH_CONNECTED: "twitch:connected",
   TWITCH_DISCONNECTED: "twitch:disconnected",
   WIDGET_TRANSFORM: "widget:transform",
+  WIDGET_LOCK: "widget:lock",
+  WIDGET_REORDER: "widget:reorder",
   WIDGET_ADD: "WIDGET_ADD",
   WIDGET_REMOVE: "WIDGET_REMOVE",
   WIDGET_UPDATE: "WIDGET_UPDATE",
   SCENE_CHANGE: "SCENE_CHANGE",
+  SCENE_CLEAR: "scene:clear",
   USER_JOIN: "USER_JOIN",
   USER_LEAVE: "USER_LEAVE"
 } as const;

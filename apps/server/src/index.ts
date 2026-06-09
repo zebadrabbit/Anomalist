@@ -25,6 +25,7 @@ import {
   getUserByUsername,
   getUserPermissionOverrides,
   setSetting,
+  listSettings,
   listPresets,
   listUsers,
   loadPreset,
@@ -623,6 +624,49 @@ app.delete("/api/users/:id/permissions/:permission", (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+app.get("/api/settings", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const settings = listSettings();
+  const payload: Record<string, string> = {};
+  for (const setting of settings) {
+    payload[setting.key] = setting.value;
+  }
+
+  res.json(payload);
+});
+
+app.patch("/api/settings", (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) {
+    return;
+  }
+
+  const body = req.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    res.status(400).json({ error: "Body must be an object" });
+    return;
+  }
+
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (!key || value === null || value === undefined) {
+      continue;
+    }
+
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      setSetting(key, String(value));
+      continue;
+    }
+
+    setSetting(key, JSON.stringify(value));
+  }
+
+  res.json({ ok: true });
+});
+
 app.get("/api/twitch/status", (req, res) => {
   const owner = requireOwner(req, res);
   if (!owner) {
@@ -1079,6 +1123,42 @@ function isVisibilityOnlyUpdate(incomingWidget: Widget | WidgetUpdate): boolean 
   );
 }
 
+function touchesTransformFields(incomingWidget: Widget | WidgetUpdate): boolean {
+  const payload = incomingWidget as Record<string, unknown>;
+  return (
+    "x" in payload
+    || "y" in payload
+    || "width" in payload
+    || "height" in payload
+    || "rotation" in payload
+  );
+}
+
+function findWidgetById(widgetId: string): Widget | null {
+  for (const scene of canvasState.scenes) {
+    const widget = scene.widgets.find((item) => item.id === widgetId);
+    if (widget) {
+      return widget;
+    }
+  }
+
+  return null;
+}
+
+function normalizeFontFamily(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const withoutFallback = trimmed.split(",")[0]?.trim() ?? "";
+  return withoutFallback.replace(/^['\"]+|['\"]+$/g, "").trim();
+}
+
 function emitPresetListToDashboards(): void {
   const payload = listPresets();
   for (const client of io.sockets.sockets.values()) {
@@ -1156,7 +1236,11 @@ io.on("connection", (socket) => {
       return;
     }
 
-    activeScene.widgets.push(widget);
+    const creator = (socket.data?.user as UserRow | undefined)?.username;
+    activeScene.widgets.push({
+      ...widget,
+      createdBy: typeof creator === "string" ? creator : widget.createdBy
+    });
     saveState("canvas", canvasState);
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
@@ -1181,16 +1265,48 @@ io.on("connection", (socket) => {
     }
 
     const existingWidget = activeScene.widgets[widgetIndex];
+    const user = socket.data?.user as UserRow | undefined;
+
+    if (existingWidget.locked === true && touchesTransformFields(incomingWidget) && user?.role !== "owner") {
+      denyPermission(socket, SocketEvents.WIDGET_UPDATE, Permissions.WIDGET_TRANSFORM);
+      return;
+    }
+
     const { id: _id, props, ...topLevelUpdates } = incomingWidget;
 
     Object.assign(existingWidget, topLevelUpdates);
     if (props && typeof props === "object") {
+      const normalizedProps = { ...props } as Record<string, unknown>;
+      if (typeof normalizedProps.fontFamily === "string") {
+        normalizedProps.fontFamily = normalizeFontFamily(normalizedProps.fontFamily);
+      }
+
       existingWidget.props = {
         ...existingWidget.props,
-        ...props
+        ...normalizedProps
       };
     }
 
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+  });
+
+  socket.on(SocketEvents.WIDGET_LOCK, (payload: { widgetId: string; locked: boolean }) => {
+    if (!can(socket, Permissions.WIDGET_TRANSFORM)) {
+      denyPermission(socket, SocketEvents.WIDGET_LOCK, Permissions.WIDGET_TRANSFORM);
+      return;
+    }
+
+    if (!payload || typeof payload.widgetId !== "string" || typeof payload.locked !== "boolean") {
+      return;
+    }
+
+    const widget = findWidgetById(payload.widgetId);
+    if (!widget) {
+      return;
+    }
+
+    widget.locked = payload.locked;
     saveState("canvas", canvasState);
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
@@ -1202,6 +1318,35 @@ io.on("connection", (socket) => {
     }
 
     socket.broadcast.emit(SocketEvents.WIDGET_TRANSFORM, data);
+  });
+
+  socket.on(SocketEvents.WIDGET_REORDER, (payload: { widgetIds?: unknown }) => {
+    if (!can(socket, Permissions.WIDGET_TRANSFORM)) {
+      denyPermission(socket, SocketEvents.WIDGET_REORDER, Permissions.WIDGET_TRANSFORM);
+      return;
+    }
+
+    if (!payload || !Array.isArray(payload.widgetIds)) {
+      return;
+    }
+
+    const activeScene = getActiveScene(canvasState);
+    if (!activeScene) {
+      return;
+    }
+
+    const widgetIds = payload.widgetIds.filter((id): id is string => typeof id === "string");
+    const widgetMap = new Map(activeScene.widgets.map((widget) => [widget.id, widget]));
+    const reordered = widgetIds
+      .filter((id) => widgetMap.has(id))
+      .map((id) => widgetMap.get(id) as Widget);
+
+    const included = new Set(widgetIds);
+    const extras = activeScene.widgets.filter((widget) => !included.has(widget.id));
+    activeScene.widgets = [...reordered, ...extras];
+
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
@@ -1232,6 +1377,26 @@ io.on("connection", (socket) => {
     }
 
     canvasState.activeSceneId = payload.sceneId;
+    saveState("canvas", canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+  });
+
+  socket.on(SocketEvents.SCENE_CLEAR, (payload: { sceneId: string }) => {
+    if (!can(socket, Permissions.WIDGET_REMOVE)) {
+      socket.emit("error", { message: "Permission denied" });
+      return;
+    }
+
+    if (!payload || typeof payload.sceneId !== "string") {
+      return;
+    }
+
+    const scene = canvasState.scenes.find((item) => item.id === payload.sceneId);
+    if (!scene) {
+      return;
+    }
+
+    scene.widgets = [];
     saveState("canvas", canvasState);
     io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
   });

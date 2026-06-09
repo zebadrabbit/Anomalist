@@ -39,6 +39,9 @@
   let savingCredentials = false;
   let disconnecting = false;
   let togglingChatbot = false;
+  let chatbotPrefix = "!";
+  let loadingSettings = false;
+  let savingPrefix = false;
   let loadingAlerts = false;
   let savingAlertType: "sub" | "follow" | "raid" | null = null;
   let status: TwitchStatus = { connected: false };
@@ -74,7 +77,7 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to load Twitch status" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to load Twitch status");
+        throw new Error(payload.error ?? "Couldn't load Twitch connection status.");
       }
 
       status = (await response.json()) as TwitchStatus;
@@ -83,10 +86,67 @@
         await loadAlertConfig();
       }
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to load Twitch status");
+      addToast("error", error instanceof Error ? error.message : "Couldn't load Twitch connection status.");
       status = { connected: false };
     } finally {
       loadingStatus = false;
+    }
+  }
+
+  async function loadSettings(): Promise<void> {
+    loadingSettings = true;
+    try {
+      const response = await fetch("/api/settings", {
+        headers: getAuthHeaders(false)
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({ error: "Failed to load settings" }))) as {
+          error?: string;
+        };
+        throw new Error(payload.error ?? "Couldn't load chatbot settings.");
+      }
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      const prefix = typeof payload.chatbot_prefix === "string" ? payload.chatbot_prefix : "!";
+      chatbotPrefix = prefix.trim() || "!";
+    } catch (error) {
+      addToast("error", error instanceof Error ? error.message : "Couldn't load chatbot settings.");
+      chatbotPrefix = "!";
+    } finally {
+      loadingSettings = false;
+    }
+  }
+
+  async function saveChatbotPrefix(): Promise<void> {
+    const nextPrefix = chatbotPrefix.trim();
+    if (!nextPrefix) {
+      return;
+    }
+
+    savingPrefix = true;
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({
+          chatbot_prefix: nextPrefix
+        })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({ error: "Failed to save prefix" }))) as {
+          error?: string;
+        };
+        throw new Error(payload.error ?? "Couldn't save chatbot prefix.");
+      }
+
+      chatbotPrefix = nextPrefix;
+      addToast("success", "Chatbot prefix saved.");
+    } catch (error) {
+      addToast("error", error instanceof Error ? error.message : "Couldn't save chatbot prefix.");
+    } finally {
+      savingPrefix = false;
     }
   }
 
@@ -113,15 +173,15 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to save credentials" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to save credentials");
+        throw new Error(payload.error ?? "Couldn't save Twitch app credentials.");
       }
 
       credentialsSaved = true;
       clientSecret = "";
-      addToast("success", "Twitch credentials saved.");
+      addToast("success", "Twitch app credentials saved.");
       await loadStatus();
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to save credentials");
+      addToast("error", error instanceof Error ? error.message : "Couldn't save Twitch app credentials.");
     } finally {
       savingCredentials = false;
     }
@@ -147,7 +207,7 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to disconnect Twitch" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to disconnect Twitch");
+        throw new Error(payload.error ?? "Couldn't disconnect Twitch account.");
       }
 
       status = { connected: false };
@@ -159,7 +219,7 @@
       addToast("success", "Twitch disconnected.");
       await loadStatus();
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to disconnect Twitch");
+      addToast("error", error instanceof Error ? error.message : "Couldn't disconnect Twitch account.");
     } finally {
       disconnecting = false;
     }
@@ -181,13 +241,13 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to update chatbot" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to update chatbot");
+        throw new Error(payload.error ?? "Couldn't update chatbot status.");
       }
 
       addToast("success", nextEnabled ? "Chatbot enabled." : "Chatbot disabled.");
       await loadStatus();
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to update chatbot");
+      addToast("error", error instanceof Error ? error.message : "Couldn't update chatbot status.");
     } finally {
       togglingChatbot = false;
     }
@@ -204,7 +264,7 @@
         const payload = (await response.json().catch(() => ({ error: "Failed to load alerts config" }))) as {
           error?: string;
         };
-        throw new Error(payload.error ?? "Failed to load alerts config");
+        throw new Error(payload.error ?? "Couldn't load alert settings.");
       }
 
       const payload = (await response.json()) as Partial<AlertConfig>;
@@ -292,6 +352,7 @@
       (import.meta.env.VITE_TWITCH_REDIRECT_URI as string | undefined)
       ?? `${window.location.origin}/auth/twitch/callback`;
     void loadStatus();
+    void loadSettings();
   });
 </script>
 
@@ -341,8 +402,37 @@
 
         <div class="text-sm text-base-content/80">
           <div class="font-semibold">Commands:</div>
-          <div class="mt-1 font-mono">!sound [name]    - plays a soundboard sound (all viewers)</div>
-          <div class="font-mono">!counter [name] +/-  - adjusts a counter (mods only)</div>
+          <div class="mt-1 font-mono">{chatbotPrefix}sound [label]   - plays a soundboard sound (all viewers)</div>
+          <div class="font-mono">{chatbotPrefix}counter [name] +/-  - adjusts a counter (mods only)</div>
+        </div>
+
+        <div class="mt-4 border-t border-base-300 pt-4">
+          <div class="mb-2 text-sm font-semibold">Command Prefix</div>
+          {#if loadingSettings}
+            <div class="text-sm text-base-content/70">Loading chatbot settings...</div>
+          {:else}
+            <div class="flex flex-wrap items-end gap-3">
+              <label class="form-control w-32">
+                <input
+                  class="input input-bordered input-sm font-mono"
+                  type="text"
+                  maxlength="5"
+                  bind:value={chatbotPrefix}
+                />
+              </label>
+              <button
+                type="button"
+                class="btn btn-sm"
+                disabled={savingPrefix || !chatbotPrefix.trim()}
+                on:click={saveChatbotPrefix}
+              >
+                {savingPrefix ? "Saving..." : "Save Prefix"}
+              </button>
+            </div>
+            <div class="mt-2 text-xs text-base-content/70">
+              The character(s) before commands. Default: ! Example: !sound, !counter
+            </div>
+          {/if}
         </div>
       </div>
 

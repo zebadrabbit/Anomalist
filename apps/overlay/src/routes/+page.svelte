@@ -11,11 +11,14 @@
   import MarqueeWidget from "../lib/widgets/MarqueeWidget.svelte";
   import ShapeWidget from "../lib/widgets/ShapeWidget.svelte";
   import SoundboardWidget from "../lib/widgets/SoundboardWidget.svelte";
+  import ParticleWidget from "../lib/widgets/ParticleWidget.svelte";
   import TextWidget from "../lib/widgets/TextWidget.svelte";
   import TimerWidget from "../lib/widgets/TimerWidget.svelte";
+  import { buildEffectStyles } from "../lib/effects.js";
 
   const JOIN_EVENT = "JOIN";
   const CHAT_BUFFER_MAX = 100;
+  const SYSTEM_FONT_NAMES = new Set(["Arial", "Helvetica", "Georgia", "Times New Roman", "Courier New", "Impact"]);
 
   interface ChatMessage {
     id: string;
@@ -29,10 +32,13 @@
   const liveState = writable<CanvasState | null>(null);
   let socket: Socket | null = null;
   let transformDrafts: Record<string, Partial<Widget>> = {};
+  let widgetAnimClasses: Record<string, string> = {};
   let activeSounds: HTMLAudioElement[] = [];
   let chatMessages: ChatMessage[] = [];
   let flashedWidgets = new Set<string>();
   const flashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const animTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const prevVisibleById = new Map<string, boolean>();
 
   $: activeScene = $liveState?.scenes.find((scene) => scene.id === $liveState.activeSceneId);
   $: widgets = activeScene?.widgets ?? [];
@@ -72,6 +78,10 @@
 
     if (widgetType === "soundboard") {
       return SoundboardWidget;
+    }
+
+    if (widgetType === "particle") {
+      return ParticleWidget;
     }
 
     return null;
@@ -143,6 +153,61 @@
     return typeof value === "string" ? value : fallback;
   }
 
+  function normalizeFontName(value: unknown): string {
+    if (typeof value !== "string") {
+      return "";
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    const withoutFallback = trimmed.split(",")[0]?.trim() ?? "";
+    return withoutFallback.replace(/^['\"]+|['\"]+$/g, "").trim();
+  }
+
+  function ensureFont(name: string) {
+    const normalized = normalizeFontName(name);
+    if (!normalized || SYSTEM_FONT_NAMES.has(normalized)) {
+      return;
+    }
+
+    const id = `gf-${normalized.replace(/\s+/g, "-")}`;
+    if (document.getElementById(id)) {
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(normalized)}&display=swap`;
+    document.head.appendChild(link);
+  }
+
+  function fontFamilyStyle(name: string): string {
+    return name ? `'${name.replace(/'/g, "\\'")}', sans-serif` : "inherit";
+  }
+
+  function injectAllWidgetFonts(state: CanvasState): void {
+    for (const scene of state.scenes) {
+      for (const widget of scene.widgets) {
+        const font = normalizeFontName(widget.props.fontFamily);
+        if (font) {
+          ensureFont(font);
+        }
+      }
+    }
+  }
+
+  function isTextWidgetType(widgetType: string): boolean {
+    return widgetType === "text"
+      || widgetType === "timer"
+      || widgetType === "counter"
+      || widgetType === "marquee"
+      || widgetType === "clock";
+  }
+
   function getChatMessagesForWidget(widget: Widget): ChatMessage[] {
     const maxMessages = Math.min(50, Math.max(1, asNumber(widget.props.maxMessages, 10)));
     const messageTimeout = Math.max(0, asNumber(widget.props.messageTimeout, 0));
@@ -153,6 +218,88 @@
 
     const cutoff = Date.now() - messageTimeout * 1000;
     return chatMessages.filter((item) => item.timestamp >= cutoff).slice(0, maxMessages);
+  }
+
+  function normalizeEntranceAnimation(value: unknown): { type: string; duration: number } {
+    const allowedTypes = new Set([
+      "none",
+      "fade",
+      "slide-up",
+      "slide-down",
+      "slide-left",
+      "slide-right",
+      "pop",
+      "bounce"
+    ]);
+
+    if (!value || typeof value !== "object") {
+      return { type: "none", duration: 400 };
+    }
+
+    const raw = value as { type?: unknown; duration?: unknown };
+    const type = typeof raw.type === "string" && allowedTypes.has(raw.type) ? raw.type : "none";
+    const durationRaw = typeof raw.duration === "number" && Number.isFinite(raw.duration) ? raw.duration : 400;
+    const duration = Math.max(100, Math.min(2000, Math.floor(durationRaw)));
+
+    return { type, duration };
+  }
+
+  $: {
+    const activeIds = new Set(widgets.map((widget) => widget.id));
+
+    for (const widgetId of prevVisibleById.keys()) {
+      if (!activeIds.has(widgetId)) {
+        prevVisibleById.delete(widgetId);
+        const animTimer = animTimers.get(widgetId);
+        if (animTimer) {
+          clearTimeout(animTimer);
+          animTimers.delete(widgetId);
+        }
+        if (widgetAnimClasses[widgetId]) {
+          const nextClasses = { ...widgetAnimClasses };
+          delete nextClasses[widgetId];
+          widgetAnimClasses = nextClasses;
+        }
+      }
+    }
+
+    for (const widget of widgets) {
+      const isVisible = widget.visible === true;
+      const prevVisible = prevVisibleById.get(widget.id);
+
+      if (prevVisible === undefined) {
+        prevVisibleById.set(widget.id, isVisible);
+        continue;
+      }
+
+      if (isVisible && !prevVisible) {
+        const animation = normalizeEntranceAnimation(widget.props.entranceAnimation);
+        if (animation.type !== "none") {
+          widgetAnimClasses = {
+            ...widgetAnimClasses,
+            [widget.id]: `anim-${animation.type}`
+          };
+
+          const existingTimer = animTimers.get(widget.id);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
+          }
+
+          const timer = setTimeout(() => {
+            if (widgetAnimClasses[widget.id]) {
+              const nextClasses = { ...widgetAnimClasses };
+              delete nextClasses[widget.id];
+              widgetAnimClasses = nextClasses;
+            }
+            animTimers.delete(widget.id);
+          }, animation.duration + 50);
+
+          animTimers.set(widget.id, timer);
+        }
+      }
+
+      prevVisibleById.set(widget.id, isVisible);
+    }
   }
 
   onMount(() => {
@@ -180,6 +327,10 @@
 
     socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
       liveState.set(nextState);
+
+      // Initial canvas state and subsequent updates both arrive via CANVAS_UPDATE.
+      injectAllWidgetFonts(nextState);
+
       transformDrafts = {};
     });
 
@@ -215,6 +366,12 @@
         clearTimeout(timer);
       }
       flashTimers.clear();
+      for (const timer of animTimers.values()) {
+        clearTimeout(timer);
+      }
+      animTimers.clear();
+      prevVisibleById.clear();
+      widgetAnimClasses = {};
       flashedWidgets = new Set();
       clearInterval(chatCleanupInterval);
       socket?.disconnect();
@@ -224,17 +381,24 @@
 </script>
 
 <main class="overlay-canvas">
-  {#each widgets as widget (widget.id)}
+  {#each widgets as widget, i (widget.id)}
     {#if widget.visible || flashedWidgets.has(widget.id)}
       {@const WidgetComponent = resolveComponent(widget.type)}
+      {@const fontFamily = normalizeFontName(widget.props.fontFamily)}
+      {@const _ = ensureFont(fontFamily)}
+      {@const isTextWidget = isTextWidgetType(widget.type)}
+      {@const effectStyles = buildEffectStyles(widget.props.effects, isTextWidget)}
+      {@const entranceAnimation = normalizeEntranceAnimation(widget.props.entranceAnimation)}
+      {@const animClass = widgetAnimClasses[widget.id] ?? ""}
       <div
         class="widget-frame"
-        style={`left:${transformDrafts[widget.id]?.x ?? widget.x}px;top:${transformDrafts[widget.id]?.y ?? widget.y}px;width:${transformDrafts[widget.id]?.width ?? widget.width}px;height:${transformDrafts[widget.id]?.height ?? widget.height}px;transform:rotate(${transformDrafts[widget.id]?.rotation ?? widget.rotation ?? 0}deg);position:absolute;`}
+        style={`left:${transformDrafts[widget.id]?.x ?? widget.x}px;top:${transformDrafts[widget.id]?.y ?? widget.y}px;width:${transformDrafts[widget.id]?.width ?? widget.width}px;height:${transformDrafts[widget.id]?.height ?? widget.height}px;transform:rotate(${transformDrafts[widget.id]?.rotation ?? widget.rotation ?? 0}deg);position:absolute;z-index:${i + 1};font-family:${fontFamily ? fontFamilyStyle(fontFamily) : "inherit"};${widget.type !== "image" ? effectStyles.containerStyle : ""}`}
       >
-        {#if widget.type === "chat"}
-          <div
-            class="chat-widget"
-            style={`
+        <div class={animClass} style={`width:100%;height:100%;--anim-duration:${entranceAnimation.duration}ms;`}>
+          {#if widget.type === "chat"}
+            <div
+              class="chat-widget"
+              style={`
               background:${asString(widget.props.background, "rgba(0,0,0,0.5)")};
               border-radius:${Math.max(0, asNumber(widget.props.borderRadius, 8))}px;
               font-size:${Math.max(8, asNumber(widget.props.fontSize, 16))}px;
@@ -248,25 +412,32 @@
               box-sizing:border-box;
               gap:4px;
             `}
-          >
-            {#each getChatMessagesForWidget(widget) as msg (msg.id)}
-              <div class="chat-line" style="display:flex;gap:6px;align-items:baseline;flex-shrink:0;">
-                {#if asBoolean(widget.props.showBadges, true)}
-                  {#if msg.badges.broadcaster}<span style="font-size:0.75em;opacity:0.8">[Host]</span>{/if}
-                  {#if msg.badges.moderator}<span style="font-size:0.75em;opacity:0.8">[Mod]</span>{/if}
-                {/if}
-                <span
-                  style={`font-weight:bold;color:${asBoolean(widget.props.colorByUser, true) ? msg.color : asString(widget.props.textColor, "#ffffff")};white-space:nowrap;`}
-                >{msg.username}</span>
-                <span style="opacity:0.9;word-break:break-word;">{msg.message}</span>
-              </div>
-            {/each}
-          </div>
-        {:else if WidgetComponent}
-          <svelte:component this={WidgetComponent} {widget} />
-        {:else}
-          <div class="widget-fallback">{widget.type}</div>
-        {/if}
+            >
+              {#each getChatMessagesForWidget(widget) as msg (msg.id)}
+                <div class="chat-line" style="display:flex;gap:6px;align-items:baseline;flex-shrink:0;">
+                  {#if asBoolean(widget.props.showBadges, true)}
+                    {#if msg.badges.broadcaster}<span style="font-size:0.75em;opacity:0.8">[Host]</span>{/if}
+                    {#if msg.badges.moderator}<span style="font-size:0.75em;opacity:0.8">[Mod]</span>{/if}
+                  {/if}
+                  <span
+                    style={`font-weight:bold;color:${asBoolean(widget.props.colorByUser, true) ? msg.color : asString(widget.props.textColor, "#ffffff")};white-space:nowrap;`}
+                  >{msg.username}</span>
+                  <span style="opacity:0.9;word-break:break-word;">{msg.message}</span>
+                </div>
+              {/each}
+            </div>
+          {:else if WidgetComponent}
+            {#if isTextWidget}
+              <svelte:component this={WidgetComponent} {widget} textStyle={effectStyles.textStyle} />
+            {:else if widget.type === "image"}
+              <svelte:component this={WidgetComponent} {widget} imageFilter={effectStyles.containerStyle} />
+            {:else}
+              <svelte:component this={WidgetComponent} {widget} />
+            {/if}
+          {:else}
+            <div class="widget-fallback">{widget.type}</div>
+          {/if}
+        </div>
       </div>
     {/if}
   {/each}
@@ -303,5 +474,51 @@
     border: 1px dashed rgba(255, 255, 255, 0.65);
     box-sizing: border-box;
   }
+
+  @keyframes anim-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes anim-slide-up {
+    from { opacity: 0; transform: translateY(40px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes anim-slide-down {
+    from { opacity: 0; transform: translateY(-40px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes anim-slide-left {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes anim-slide-right {
+    from { opacity: 0; transform: translateX(-40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes anim-pop {
+    0% { opacity: 0; transform: scale(0.5); }
+    70% { opacity: 1; transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+
+  @keyframes anim-bounce {
+    0% { opacity: 0; transform: translateY(60px); }
+    50% { opacity: 1; transform: translateY(-12px); }
+    75% { transform: translateY(6px); }
+    100% { transform: translateY(0); }
+  }
+
+  .anim-fade { animation: anim-fade var(--anim-duration, 400ms) ease both; }
+  .anim-slide-up { animation: anim-slide-up var(--anim-duration, 400ms) ease both; }
+  .anim-slide-down { animation: anim-slide-down var(--anim-duration, 400ms) ease both; }
+  .anim-slide-left { animation: anim-slide-left var(--anim-duration, 400ms) ease both; }
+  .anim-slide-right { animation: anim-slide-right var(--anim-duration, 400ms) ease both; }
+  .anim-pop { animation: anim-pop var(--anim-duration, 400ms) ease both; }
+  .anim-bounce { animation: anim-bounce var(--anim-duration, 400ms) ease both; }
 
 </style>

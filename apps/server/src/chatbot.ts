@@ -15,6 +15,34 @@ function normalizeValue(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function fileNameWithoutExtension(path: string): string {
+  const base = path.split("/").pop() ?? path;
+  const dotIndex = base.lastIndexOf(".");
+  if (dotIndex <= 0) {
+    return base;
+  }
+
+  return base.slice(0, dotIndex);
+}
+
+function resolveSoundLabel(sound: { label?: unknown; name?: unknown; url?: unknown }): string {
+  const label = normalizeValue(sound.label);
+  if (label) {
+    return label;
+  }
+
+  const legacyName = normalizeValue(sound.name);
+  if (legacyName) {
+    return legacyName;
+  }
+
+  if (typeof sound.url === "string") {
+    return normalizeValue(fileNameWithoutExtension(sound.url));
+  }
+
+  return "";
+}
+
 export async function handleChatMessage(
   io: Server,
   getCanvas: () => CanvasState,
@@ -48,8 +76,8 @@ export async function handleChatMessage(
 
   const soundPrefix = `${prefix}sound `;
   if (text.toLowerCase().startsWith(soundPrefix.toLowerCase())) {
-    const soundName = text.slice(soundPrefix.length).trim();
-    if (!soundName) {
+    const requestedLabel = normalizeValue(text.slice(soundPrefix.length));
+    if (!requestedLabel) {
       return;
     }
 
@@ -61,15 +89,17 @@ export async function handleChatMessage(
 
     const sounds = Array.isArray(soundboard.props.sounds) ? soundboard.props.sounds : [];
     const matchedSound = sounds
-      .filter((item): item is { name?: unknown; url?: unknown } => !!item && typeof item === "object")
-      .find((sound) => normalizeValue(sound.name) === soundName.toLowerCase());
+      .filter((item): item is { label?: unknown; name?: unknown; url?: unknown; volume?: unknown } => !!item && typeof item === "object")
+      .find((sound) => resolveSoundLabel(sound) === requestedLabel);
 
     if (!matchedSound || typeof matchedSound.url !== "string" || !matchedSound.url) {
       return;
     }
 
-    const widgetVolume = typeof soundboard.props.volume === "number" ? soundboard.props.volume : 1;
-    const clampedVolume = Math.min(1, Math.max(0, widgetVolume));
+    const perSoundVolume = typeof matchedSound.volume === "number" && Number.isFinite(matchedSound.volume)
+      ? matchedSound.volume
+      : 1;
+    const clampedVolume = Math.min(1, Math.max(0, perSoundVolume));
     io.emit("sound:play", { url: matchedSound.url, volume: clampedVolume });
     return;
   }

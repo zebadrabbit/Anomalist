@@ -60,6 +60,28 @@ registerWidget(myWidget);
 - Some widgets are dashboard-only controls and intentionally render nothing on overlay.
 - For these overlay-invisible widgets, keep an empty renderer component so routing stays consistent.
 
+## Common Optional Props (v0.3)
+
+Community widgets can support the same optional fields used by built-in widgets.
+
+- `fontFamily?: string`
+  - Use for text rendering.
+  - Dashboard/overlay can inject selected Google Fonts automatically.
+
+- `effects?: object`
+  - Standard visual effect bucket used by built-ins.
+  - Includes patterns like `glow`, `shadow`, `outline`, `gradientText`.
+  - You can opt into any subset.
+
+- `entranceAnimation?: { type: string; duration: number }`
+  - Lets your widget participate in the standard visibility-on entrance animation flow.
+  - Typical `type` values: `none`, `fade`, `slide-up`, `slide-down`, `slide-left`, `slide-right`, `pop`, `bounce`.
+  - `duration` is milliseconds.
+
+Recommendation:
+- Treat these as optional and always provide safe defaults.
+- Keep rendering stable when fields are missing.
+
 ## Dashboard Settings Notes
 
 - Accept a single Widget prop.

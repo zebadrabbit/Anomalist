@@ -2,6 +2,7 @@
   import type { Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import type { Socket } from "socket.io-client";
+  import FontPicker from "../FontPicker.svelte";
 
   export let widget: Widget;
   export let socket: Socket | null;
@@ -54,6 +55,7 @@
   $: value = Math.floor(asNumber(widget.props.value, 0));
   $: step = Math.max(1, asNumber(widget.props.step, 1));
   $: label = asString(widget.props.label, "");
+  $: fontFamily = asString(widget.props.fontFamily, "Arial");
   $: fontSize = asNumber(widget.props.fontSize, 32);
   $: color = asString(widget.props.color, "#ffffff");
 </script>
@@ -79,6 +81,8 @@
     <span class="label-text mb-1">Label</span>
     <input class="input input-bordered input-sm w-full" value={label} on:input={(event) => emitProp("label", event.currentTarget.value)} />
   </label>
+
+  <FontPicker value={fontFamily} on:change={(event) => emitProp("fontFamily", event.detail)} />
 
   <label class="form-control w-full">
     <span class="label-text mb-1">Font Size</span>
