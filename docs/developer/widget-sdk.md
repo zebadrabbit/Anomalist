@@ -12,21 +12,6 @@ Use the WidgetDefinition interface from @anomalist/widget-sdk:
 - renderUrl: URL path used by overlay rendering.
 - settingsSchema: optional JSON Schema for future UI generation.
 
-## Built-in Widget Types
-
-| Type ID | Display Name |
-| --- | --- |
-| `text` | Text |
-| `image` | Image |
-| `timer` | Timer |
-| `counter` | Counter |
-| `marquee` | Marquee |
-| `clock` | Clock |
-| `shape` | Shape |
-| `soundboard` | Soundboard |
-| `chat` | Chat Feed |
-| `custom-html` | Custom HTML |
-
 ## Add A Widget
 
 1. Create an overlay renderer component in apps/overlay/src/lib/widgets.
@@ -60,42 +45,11 @@ registerWidget(myWidget);
 - Some widgets are dashboard-only controls and intentionally render nothing on overlay.
 - For these overlay-invisible widgets, keep an empty renderer component so routing stays consistent.
 
-## Common Optional Props (v0.3)
-
-Community widgets can support the same optional fields used by built-in widgets.
-
-- `fontFamily?: string`
-  - Use for text rendering.
-  - Dashboard/overlay can inject selected Google Fonts automatically.
-
-- `effects?: object`
-  - Standard visual effect bucket used by built-ins.
-  - Includes patterns like `glow`, `shadow`, `outline`, `gradientText`.
-  - You can opt into any subset.
-
-- `entranceAnimation?: { type: string; duration: number }`
-  - Lets your widget participate in the standard visibility-on entrance animation flow.
-  - Typical `type` values: `none`, `fade`, `slide-up`, `slide-down`, `slide-left`, `slide-right`, `pop`, `bounce`.
-  - `duration` is milliseconds.
-
-Recommendation:
-- Treat these as optional and always provide safe defaults.
-- Keep rendering stable when fields are missing.
-
 ## Dashboard Settings Notes
 
 - Accept a single Widget prop.
 - Emit WIDGET_UPDATE immediately when fields change.
 - Keep controls simple and task-focused.
-
-## Socket Events
-
-- `chat:message`: emitted by server for each Twitch chat message.
-Payload shape:
-`{ id, username, color, message, badges, timestamp }`
-- `twitch:alert`: emitted by server when an EventSub event resolves to an alert action.
-Payload shape:
-`{ type, user, viewers?, soundUrl, widgetId, duration }`
 
 ## Submitting A PR
 

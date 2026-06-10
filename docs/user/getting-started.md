@@ -41,23 +41,6 @@ Open http://localhost:3001
 
 Create your owner account on first run.
 
-### Connecting Twitch (optional)
-
-Twitch is optional. Anomalist works fine without it.
-
-If you do connect Twitch, you unlock chatbot commands, event alerts, and stream management from inside the dashboard.
-
-1. Go to dev.twitch.tv and create an application.
-2. Name it anything you want (for example, My Anomalist).
-3. Set the OAuth redirect URI to the URL shown in your Anomalist settings panel.
-4. Copy the Client ID and Client Secret.
-5. In Anomalist, click the Settings button (gear icon at the bottom of the left sidebar, owners only).
-6. Paste your Client ID and Client Secret, then click Save Credentials.
-7. Click Connect Twitch and log in when Twitch asks.
-8. You will return to Anomalist and see Connected as [your channel].
-
-Your credentials are stored locally on your own Anomalist server. They are only used to talk to Twitch and are not sent to any other service.
-
 ## Adding it to OBS
 
 1. Add Source -> Browser
@@ -75,18 +58,6 @@ Your credentials are stored locally on your own Anomalist server. They are only 
 4. Click the eye icon to show it.
 
 You should see it appear in OBS immediately.
-
-## Navigating the Canvas
-
-The dashboard gives you two side panels around the canvas:
-- Left sidebar: widget list, scenes, presets, and quick navigation tools.
-- Right sidebar: widget settings, media library, and layers.
-
-Both sidebars can be collapsed if you want more canvas space.
-
-Layers panel tip:
-- Open Layers to reorder widget stack (what appears in front/behind).
-- Drag items to reorder, or use the up/down controls.
 
 ## Giving mods access
 

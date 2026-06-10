@@ -34,21 +34,6 @@ Widget change flow:
 5. Server broadcasts CANVAS_UPDATE.
 6. Overlay re-renders.
 
-## Standard widget fields and common props (v0.3)
-
-Top-level Widget fields used broadly:
-- `locked?: boolean`: when true, transform updates are blocked for non-owner users.
-- `createdBy?: string`: username stamped by server when widget is created.
-
-Common optional props used across multiple widget types:
-- `fontFamily?: string`: selected font family for text-driven widgets.
-- `effects?: object`: visual effects config (glow, shadow, outline, gradientText).
-- `entranceAnimation?: { type: string; duration: number }`: animation played on visibility-off -> visibility-on transitions.
-
-Notes:
-- `effects.outline` and `effects.gradientText` are mutually exclusive at render time for text widgets; gradient takes priority.
-- `entranceAnimation` is consumed in both dashboard canvas and overlay renderers.
-
 ## Real-time transform streaming
 
 WIDGET_TRANSFORM bypasses state mutation and DB writes.
@@ -56,10 +41,6 @@ WIDGET_TRANSFORM bypasses state mutation and DB writes.
 The server relays transform events directly so the overlay can preview live drag and resize smoothly.
 
 WIDGET_UPDATE on mouseup persists the final position.
-
-Lock behavior:
-- If stored widget has `locked: true`, server rejects updates touching `x`, `y`, `width`, `height`, or `rotation` for non-owner users.
-- Owners can still modify locked widgets.
 
 ## Auth model
 
@@ -71,72 +52,3 @@ Dashboard UI gating is cosmetic only. The server is authoritative.
 ## Adding a widget
 
 For widget authoring details, see docs/developer/widget-sdk.md.
-
-## Twitch Integration
-
-Server-side Twitch integration is split into three modules:
-
-- `apps/server/src/twitch.ts`: OAuth credential/token management.
-Exposes `getTwitchToken()`, which returns a valid access token and refreshes when expiry is within 5 minutes.
-All server code that calls Twitch APIs should obtain tokens through this module.
-- `apps/server/src/chatbot.ts`: Twitch IRC chatbot via `tmi.js`.
-Lifecycle is `startChatbot()` and `stopChatbot()`.
-On incoming chat commands, it emits `sound:play` for `!sound` and updates `canvasState` counters for `!counter` through callbacks passed at startup.
-It also emits `chat:message` for every incoming chat message so overlay chat widgets can render it.
-- `apps/server/src/eventsub.ts`: EventSub WebSocket client via `ws`.
-Maintains a single persistent connection, subscribes to `channel.subscribe`, `channel.follow`, and `channel.raid` on `session_welcome`, and emits `twitch:alert` with resolved alert action (`soundUrl`, `widgetId`, `duration`).
-Includes keepalive watchdog and reconnect behavior.
-
-Lifecycle for all three modules:
-
-- Auto-start on server boot when `twitch_config` exists in SQLite.
-- Start after successful OAuth callback.
-- Stop on owner disconnect.
-
-Settings are stored in the `settings` table (`key`/`value`).
-Relevant keys:
-
-- `twitch_client_id`
-- `twitch_client_secret`
-- `chatbot_enabled`
-- `chatbot_prefix`
-- `alert_config`
-
-New endpoint summary:
-
-```text
-GET  /api/twitch/status              - connection + chatbot state
-POST /api/twitch/credentials         - save client ID + secret (owner)
-GET  /auth/twitch/connect            - begin OAuth redirect (owner)
-GET  /auth/twitch/callback           - OAuth code exchange
-DEL  /api/twitch/disconnect          - disconnect + stop chatbot + eventsub (owner)
-POST /api/twitch/chatbot             - enable/disable chatbot (owner)
-GET  /api/twitch/alerts/config       - read alert config (owner)
-PUT  /api/twitch/alerts/config       - update alert config (owner)
-GET  /api/twitch/stream              - current title + game (stream.manage)
-PATCH /api/twitch/stream             - update title and/or game_id (stream.manage)
-GET  /api/twitch/stream/search-games - search Twitch categories (stream.manage)
-```
-
-## Socket event additions (v0.3)
-
-- `widget:lock`:
-      - payload: `{ widgetId: string, locked: boolean }`
-      - permission: `widget.transform`
-      - effect: sets `widget.locked`, persists canvas, broadcasts `CANVAS_UPDATE`
-
-- `scene:clear`:
-      - payload: `{ sceneId: string }`
-      - permission: `widget.remove`
-      - effect: empties scene widget array, persists canvas, broadcasts `CANVAS_UPDATE`
-
-- `widget:reorder` (`SocketEvents.WIDGET_REORDER`):
-      - payload: `{ widgetIds: string[] }`
-      - permission: `widget.transform`
-      - effect: reorders active scene widgets, preserves unknown extras at end, persists and broadcasts
-
-## Overlay rendering notes (v0.3)
-
-- Widget stacking uses array order from active scene; effective z-index is `index + 1` in overlay renderer.
-- On each `CANVAS_UPDATE`, overlay injects required Google Fonts for current widget set.
-- Entrance animation classes are applied when widget visibility transitions from false to true.
