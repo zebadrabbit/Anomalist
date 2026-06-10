@@ -31,18 +31,19 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-        working-directory: docs
-
-      - name: Create screenshot placeholders
+      - name: Validate screenshot assets
         run: |
-          mkdir -p docs/public/screenshots
-          for name in dashboard add-widget widget-settings twitch-settings alerts; do
-            if [ ! -f "docs/public/screenshots/${name}.png" ]; then
-              printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8B9X8AAAAASUVORK5CYII=' | base64 -d > "docs/public/screenshots/${name}.png"
-            fi
-          done
+          ls -1 docs/public/screenshots/*.png
+          uniq_hashes=$(sha256sum docs/public/screenshots/*.png | awk '{print $1}' | sort -u | wc -l)
+          if [ "$uniq_hashes" -lt 3 ]; then
+            echo "Screenshot set looks suspicious (too many duplicates)."
+            exit 1
+          fi
+
+          if file docs/public/screenshots/dashboard.png | grep -q '1 x 1'; then
+            echo "dashboard.png appears to be a 1x1 placeholder."
+            exit 1
+          fi
 
       - name: Build docs
         run: npm run docs:build
