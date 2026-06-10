@@ -3,12 +3,16 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "docs"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "docs:dev": "npm --workspace @anomalist/docs run dev",
+    "docs:build": "npm --workspace @anomalist/docs run build",
+    "docs:screenshots": "npm --workspace @anomalist/docs run screenshots"
   },
   "engines": {
     "node": ">=20"

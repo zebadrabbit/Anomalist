@@ -1,0 +1,18 @@
+{
+  "name": "@anomalist/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.3.4"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.45.0"
+  }
+}
