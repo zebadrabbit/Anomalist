@@ -1,2 +1,10 @@
 *.png
+!add-widget.png
+!alerts.png
+!dashboard.png
+!media.png
+!overlay.png
+!twitch-settings.png
+!users.png
+!widget-settings.png
 !.gitkeep
