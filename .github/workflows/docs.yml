@@ -35,6 +35,13 @@ jobs:
         run: npx playwright install chromium
         working-directory: docs
 
+      - name: Create screenshot placeholders
+        run: |
+          mkdir -p docs/public/screenshots
+          for name in dashboard add-widget widget-settings twitch-settings alerts; do
+            printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8B9X8AAAAASUVORK5CYII=' | base64 -d > "docs/public/screenshots/${name}.png"
+          done
+
       - name: Build docs
         run: npm run docs:build
 
