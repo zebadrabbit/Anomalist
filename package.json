@@ -12,7 +12,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "docs:dev": "npm --workspace @anomalist/docs run dev",
     "docs:build": "npm --workspace @anomalist/docs run build",
-    "docs:screenshots": "npm --workspace @anomalist/docs run screenshots"
+    "docs:screenshots": "npm --workspace @anomalist/docs run screenshots",
+    "docs:screenshots:local": "bash scripts/docs-screenshots-local.sh"
   },
   "engines": {
     "node": ">=20"
