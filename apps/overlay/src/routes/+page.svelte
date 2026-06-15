@@ -1,20 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { writable } from "svelte/store";
+  import { get, writable } from "svelte/store";
   import { io, type Socket } from "socket.io-client";
-  import type { CanvasState, SoundPlay, Widget, WidgetTransform } from "@anomalist/types";
+  import type { CanvasState, SceneTransitionType, SoundPlay, Widget, WidgetTransform } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
-  import CounterWidget from "../lib/widgets/CounterWidget.svelte";
-  import ClockWidget from "../lib/widgets/ClockWidget.svelte";
-  import CustomHtmlWidget from "../lib/widgets/CustomHtmlWidget.svelte";
-  import ImageWidget from "../lib/widgets/ImageWidget.svelte";
-  import MarqueeWidget from "../lib/widgets/MarqueeWidget.svelte";
-  import ShapeWidget from "../lib/widgets/ShapeWidget.svelte";
-  import SoundboardWidget from "../lib/widgets/SoundboardWidget.svelte";
-  import ParticleWidget from "../lib/widgets/ParticleWidget.svelte";
-  import TextWidget from "../lib/widgets/TextWidget.svelte";
-  import TimerWidget from "../lib/widgets/TimerWidget.svelte";
-  import { buildEffectStyles } from "../lib/effects.js";
+  import SceneLayer from "../lib/SceneLayer.svelte";
 
   const JOIN_EVENT = "JOIN";
   const CHAT_BUFFER_MAX = 100;
@@ -40,51 +30,83 @@
   const animTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const prevVisibleById = new Map<string, boolean>();
 
+  // --- Scene transition state ---
+  // The incoming (current) layer always renders the active scene's live widgets.
+  // During a non-cut transition we also mount an `outgoing` layer holding a frozen
+  // snapshot of the scene we are leaving, and animate both.
+  let displayedSceneId: string | null = null;
+  let outgoing: { key: string; widgets: Widget[] } | null = null;
+  let incomingKey = "scene";
+  let incomingClass = "";
+  let outgoingClass = "";
+  let transitionDurationMs = 400;
+  let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+  let layerSeq = 0;
+
   $: activeScene = $liveState?.scenes.find((scene) => scene.id === $liveState.activeSceneId);
   $: widgets = activeScene?.widgets ?? [];
 
-  function resolveComponent(widgetType: string) {
-    if (widgetType === "text") {
-      return TextWidget;
+  function transitionClasses(type: SceneTransitionType): { in: string; out: string } {
+    switch (type) {
+      case "fade":
+        return { in: "layer-fade-in", out: "layer-fade-out" };
+      case "slide-left":
+        return { in: "layer-slide-in-left", out: "layer-slide-out-left" };
+      case "slide-right":
+        return { in: "layer-slide-in-right", out: "layer-slide-out-right" };
+      default:
+        return { in: "", out: "" };
+    }
+  }
+
+  // Jump any in-flight transition to its end state: drop the outgoing layer and
+  // clear animation classes (which also removes their will-change).
+  function finalizeTransition(): void {
+    if (transitionTimer) {
+      clearTimeout(transitionTimer);
+      transitionTimer = null;
+    }
+    outgoing = null;
+    outgoingClass = "";
+    incomingClass = "";
+  }
+
+  function handleSceneTransition(nextState: CanvasState): void {
+    const previousState = get(liveState);
+    const newActiveId = nextState.activeSceneId;
+    const transition = nextState.transition ?? { type: "cut" as SceneTransitionType, duration: 400 };
+
+    // First state ever, or only widget edits within the same scene: no transition.
+    if (displayedSceneId === null || newActiveId === displayedSceneId) {
+      displayedSceneId = newActiveId;
+      return;
     }
 
-    if (widgetType === "image") {
-      return ImageWidget;
+    if (transition.type === "cut") {
+      finalizeTransition();
+      displayedSceneId = newActiveId;
+      return;
     }
 
-    if (widgetType === "timer") {
-      return TimerWidget;
-    }
+    // Animated switch. If one is already running, finalize it first so we never
+    // stack three scenes — the in-flight incoming becomes the new outgoing.
+    finalizeTransition();
 
-    if (widgetType === "counter") {
-      return CounterWidget;
-    }
+    const leavingScene = previousState?.scenes.find((scene) => scene.id === displayedSceneId);
+    const leavingWidgets = leavingScene ? leavingScene.widgets.map((widget) => ({ ...widget })) : [];
 
-    if (widgetType === "marquee") {
-      return MarqueeWidget;
-    }
+    layerSeq += 1;
+    const classes = transitionClasses(transition.type);
+    outgoing = { key: `out-${layerSeq}`, widgets: leavingWidgets };
+    outgoingClass = classes.out;
+    incomingKey = `in-${layerSeq}`; // changing the key remounts the layer so its CSS animation replays
+    incomingClass = classes.in;
+    transitionDurationMs = transition.duration;
+    displayedSceneId = newActiveId;
 
-    if (widgetType === "clock") {
-      return ClockWidget;
-    }
-
-    if (widgetType === "custom-html") {
-      return CustomHtmlWidget;
-    }
-
-    if (widgetType === "shape") {
-      return ShapeWidget;
-    }
-
-    if (widgetType === "soundboard") {
-      return SoundboardWidget;
-    }
-
-    if (widgetType === "particle") {
-      return ParticleWidget;
-    }
-
-    return null;
+    transitionTimer = setTimeout(() => {
+      finalizeTransition();
+    }, transition.duration);
   }
 
   async function playSound(data: SoundPlay) {
@@ -141,18 +163,6 @@
     flashTimers.set(widgetId, timer);
   }
 
-  function asBoolean(value: unknown, fallback: boolean): boolean {
-    return typeof value === "boolean" ? value : fallback;
-  }
-
-  function asNumber(value: unknown, fallback: number): number {
-    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-  }
-
-  function asString(value: unknown, fallback: string): string {
-    return typeof value === "string" ? value : fallback;
-  }
-
   function normalizeFontName(value: unknown): string {
     if (typeof value !== "string") {
       return "";
@@ -185,10 +195,6 @@
     document.head.appendChild(link);
   }
 
-  function fontFamilyStyle(name: string): string {
-    return name ? `'${name.replace(/'/g, "\\'")}', sans-serif` : "inherit";
-  }
-
   function injectAllWidgetFonts(state: CanvasState): void {
     for (const scene of state.scenes) {
       for (const widget of scene.widgets) {
@@ -198,26 +204,6 @@
         }
       }
     }
-  }
-
-  function isTextWidgetType(widgetType: string): boolean {
-    return widgetType === "text"
-      || widgetType === "timer"
-      || widgetType === "counter"
-      || widgetType === "marquee"
-      || widgetType === "clock";
-  }
-
-  function getChatMessagesForWidget(widget: Widget): ChatMessage[] {
-    const maxMessages = Math.min(50, Math.max(1, asNumber(widget.props.maxMessages, 10)));
-    const messageTimeout = Math.max(0, asNumber(widget.props.messageTimeout, 0));
-
-    if (messageTimeout <= 0) {
-      return chatMessages.slice(0, maxMessages);
-    }
-
-    const cutoff = Date.now() - messageTimeout * 1000;
-    return chatMessages.filter((item) => item.timestamp >= cutoff).slice(0, maxMessages);
   }
 
   function normalizeEntranceAnimation(value: unknown): { type: string; duration: number } {
@@ -244,6 +230,8 @@
     return { type, duration };
   }
 
+  // Entrance animations replay only when a widget toggles invisible→visible inside
+  // the active scene; first appearances (scene load/switch) are recorded silently.
   $: {
     const activeIds = new Set(widgets.map((widget) => widget.id));
 
@@ -326,6 +314,8 @@
     });
 
     socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
+      // Decide on a transition using the OLD store value before we swap it in.
+      handleSceneTransition(nextState);
       liveState.set(nextState);
 
       // Initial canvas state and subsequent updates both arrive via CANVAS_UPDATE.
@@ -370,6 +360,10 @@
         clearTimeout(timer);
       }
       animTimers.clear();
+      if (transitionTimer) {
+        clearTimeout(transitionTimer);
+        transitionTimer = null;
+      }
       prevVisibleById.clear();
       widgetAnimClasses = {};
       flashedWidgets = new Set();
@@ -381,66 +375,23 @@
 </script>
 
 <main class="overlay-canvas">
-  {#each widgets as widget, i (widget.id)}
-    {#if widget.visible || flashedWidgets.has(widget.id)}
-      {@const WidgetComponent = resolveComponent(widget.type)}
-      {@const fontFamily = normalizeFontName(widget.props.fontFamily)}
-      {@const _ = ensureFont(fontFamily)}
-      {@const isTextWidget = isTextWidgetType(widget.type)}
-      {@const effectStyles = buildEffectStyles(widget.props.effects, isTextWidget)}
-      {@const entranceAnimation = normalizeEntranceAnimation(widget.props.entranceAnimation)}
-      {@const animClass = widgetAnimClasses[widget.id] ?? ""}
-      <div
-        class="widget-frame"
-        style={`left:${transformDrafts[widget.id]?.x ?? widget.x}px;top:${transformDrafts[widget.id]?.y ?? widget.y}px;width:${transformDrafts[widget.id]?.width ?? widget.width}px;height:${transformDrafts[widget.id]?.height ?? widget.height}px;transform:rotate(${transformDrafts[widget.id]?.rotation ?? widget.rotation ?? 0}deg);position:absolute;z-index:${i + 1};font-family:${fontFamily ? fontFamilyStyle(fontFamily) : "inherit"};${widget.type !== "image" ? effectStyles.containerStyle : ""}`}
-      >
-        <div class={animClass} style={`width:100%;height:100%;--anim-duration:${entranceAnimation.duration}ms;`}>
-          {#if widget.type === "chat"}
-            <div
-              class="chat-widget"
-              style={`
-              background:${asString(widget.props.background, "rgba(0,0,0,0.5)")};
-              border-radius:${Math.max(0, asNumber(widget.props.borderRadius, 8))}px;
-              font-size:${Math.max(8, asNumber(widget.props.fontSize, 16))}px;
-              color:${asString(widget.props.textColor, "#ffffff")};
-              width:100%;
-              height:100%;
-              overflow:hidden;
-              display:flex;
-              flex-direction:column-reverse;
-              padding:8px;
-              box-sizing:border-box;
-              gap:4px;
-            `}
-            >
-              {#each getChatMessagesForWidget(widget) as msg (msg.id)}
-                <div class="chat-line" style="display:flex;gap:6px;align-items:baseline;flex-shrink:0;">
-                  {#if asBoolean(widget.props.showBadges, true)}
-                    {#if msg.badges.broadcaster}<span style="font-size:0.75em;opacity:0.8">[Host]</span>{/if}
-                    {#if msg.badges.moderator}<span style="font-size:0.75em;opacity:0.8">[Mod]</span>{/if}
-                  {/if}
-                  <span
-                    style={`font-weight:bold;color:${asBoolean(widget.props.colorByUser, true) ? msg.color : asString(widget.props.textColor, "#ffffff")};white-space:nowrap;`}
-                  >{msg.username}</span>
-                  <span style="opacity:0.9;word-break:break-word;">{msg.message}</span>
-                </div>
-              {/each}
-            </div>
-          {:else if WidgetComponent}
-            {#if isTextWidget}
-              <svelte:component this={WidgetComponent} {widget} textStyle={effectStyles.textStyle} />
-            {:else if widget.type === "image"}
-              <svelte:component this={WidgetComponent} {widget} imageFilter={effectStyles.containerStyle} />
-            {:else}
-              <svelte:component this={WidgetComponent} {widget} />
-            {/if}
-          {:else}
-            <div class="widget-fallback">{widget.type}</div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-  {/each}
+  {#if outgoing}
+    <div class={`scene-layer ${outgoingClass}`} style={`--transition-duration:${transitionDurationMs}ms;`}>
+      <SceneLayer
+        widgets={outgoing.widgets}
+        transformDrafts={{}}
+        widgetAnimClasses={{}}
+        {chatMessages}
+        {flashedWidgets}
+      />
+    </div>
+  {/if}
+
+  {#key incomingKey}
+    <div class={`scene-layer ${incomingClass}`} style={`--transition-duration:${transitionDurationMs}ms;`}>
+      <SceneLayer {widgets} {transformDrafts} {widgetAnimClasses} {chatMessages} {flashedWidgets} />
+    </div>
+  {/key}
 </main>
 
 <style>
@@ -459,66 +410,73 @@
     overflow: hidden;
   }
 
-  .widget-frame {
+  /* Both transition layers fill the canvas and stay transparent so OBS never
+     sees a flash of the body background between scenes. */
+  .scene-layer {
     position: absolute;
-    transform-origin: center center;
-  }
-
-  .widget-fallback {
+    inset: 0;
     width: 100%;
     height: 100%;
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px dashed rgba(255, 255, 255, 0.65);
-    box-sizing: border-box;
+    background: transparent;
   }
 
-  @keyframes anim-fade {
+  @keyframes layer-fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
 
-  @keyframes anim-slide-up {
-    from { opacity: 0; transform: translateY(40px); }
-    to { opacity: 1; transform: translateY(0); }
+  @keyframes layer-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 
-  @keyframes anim-slide-down {
-    from { opacity: 0; transform: translateY(-40px); }
-    to { opacity: 1; transform: translateY(0); }
+  @keyframes layer-slide-in-left {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
   }
 
-  @keyframes anim-slide-left {
-    from { opacity: 0; transform: translateX(40px); }
-    to { opacity: 1; transform: translateX(0); }
+  @keyframes layer-slide-out-left {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
   }
 
-  @keyframes anim-slide-right {
-    from { opacity: 0; transform: translateX(-40px); }
-    to { opacity: 1; transform: translateX(0); }
+  @keyframes layer-slide-in-right {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
   }
 
-  @keyframes anim-pop {
-    0% { opacity: 0; transform: scale(0.5); }
-    70% { opacity: 1; transform: scale(1.08); }
-    100% { transform: scale(1); }
+  @keyframes layer-slide-out-right {
+    from { transform: translateX(0); }
+    to { transform: translateX(100%); }
   }
 
-  @keyframes anim-bounce {
-    0% { opacity: 0; transform: translateY(60px); }
-    50% { opacity: 1; transform: translateY(-12px); }
-    75% { transform: translateY(6px); }
-    100% { transform: translateY(0); }
+  .layer-fade-in {
+    animation: layer-fade-in var(--transition-duration, 400ms) ease both;
+    will-change: opacity;
   }
 
-  .anim-fade { animation: anim-fade var(--anim-duration, 400ms) ease both; }
-  .anim-slide-up { animation: anim-slide-up var(--anim-duration, 400ms) ease both; }
-  .anim-slide-down { animation: anim-slide-down var(--anim-duration, 400ms) ease both; }
-  .anim-slide-left { animation: anim-slide-left var(--anim-duration, 400ms) ease both; }
-  .anim-slide-right { animation: anim-slide-right var(--anim-duration, 400ms) ease both; }
-  .anim-pop { animation: anim-pop var(--anim-duration, 400ms) ease both; }
-  .anim-bounce { animation: anim-bounce var(--anim-duration, 400ms) ease both; }
+  .layer-fade-out {
+    animation: layer-fade-out var(--transition-duration, 400ms) ease both;
+    will-change: opacity;
+  }
 
+  .layer-slide-in-left {
+    animation: layer-slide-in-left var(--transition-duration, 400ms) ease both;
+    will-change: transform;
+  }
+
+  .layer-slide-out-left {
+    animation: layer-slide-out-left var(--transition-duration, 400ms) ease both;
+    will-change: transform;
+  }
+
+  .layer-slide-in-right {
+    animation: layer-slide-in-right var(--transition-duration, 400ms) ease both;
+    will-change: transform;
+  }
+
+  .layer-slide-out-right {
+    animation: layer-slide-out-right var(--transition-duration, 400ms) ease both;
+    will-change: transform;
+  }
 </style>

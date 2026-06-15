@@ -32,14 +32,30 @@
 
   $: url = asString(widget.props.url, "");
   $: opacity = Math.min(1, Math.max(0, asNumber(widget.props.opacity, 1)));
+  function isVideoUrl(value: string): boolean {
+    const path = value.split("?")[0].split("#")[0].toLowerCase();
+    return /\.(mp4|webm|mpeg|mpg|mov|ogv|m4v)$/.test(path);
+  }
+
   $: borderRadius = Math.max(0, asNumber(widget.props.borderRadius, 0));
   $: altText = getAltText(url);
+  $: isVideo = isVideoUrl(url);
 </script>
 
 <div
   style={`width:100%;height:100%;border-radius:${borderRadius}px;overflow:hidden;box-sizing:border-box;`}
 >
-  {#if url}
+  {#if url && isVideo}
+    <!-- svelte-ignore a11y-media-has-caption -->
+    <video
+      src={url}
+      muted
+      autoplay
+      loop
+      playsinline
+      style={`width:100%;height:100%;object-fit:contain;display:block;opacity:${opacity};${imageFilter}`}
+    ></video>
+  {:else if url}
     <img
       src={url}
       alt={altText}

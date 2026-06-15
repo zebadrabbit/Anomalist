@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .svelte-kit
+apps/*/build
 *.db
 *.db-shm
 *.db-wal

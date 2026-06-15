@@ -42,6 +42,10 @@
   let chatbotPrefix = "!";
   let loadingSettings = false;
   let savingPrefix = false;
+  type SceneTransitionType = "cut" | "fade" | "slide-left" | "slide-right";
+  let sceneTransition: SceneTransitionType = "cut";
+  let sceneTransitionDuration = 400;
+  let savingTransition = false;
   let loadingAlerts = false;
   let savingAlertType: "sub" | "follow" | "raid" | null = null;
   let status: TwitchStatus = { connected: false };
@@ -110,11 +114,52 @@
       const payload = (await response.json()) as Record<string, unknown>;
       const prefix = typeof payload.chatbot_prefix === "string" ? payload.chatbot_prefix : "!";
       chatbotPrefix = prefix.trim() || "!";
+
+      const allowedTransitions: SceneTransitionType[] = ["cut", "fade", "slide-left", "slide-right"];
+      const rawTransition = typeof payload.scene_transition === "string" ? payload.scene_transition : "cut";
+      sceneTransition = (allowedTransitions as string[]).includes(rawTransition)
+        ? (rawTransition as SceneTransitionType)
+        : "cut";
+
+      const rawDuration = Number(payload.scene_transition_duration);
+      sceneTransitionDuration = Number.isFinite(rawDuration)
+        ? Math.max(100, Math.min(2000, Math.floor(rawDuration)))
+        : 400;
     } catch (error) {
       addToast("error", error instanceof Error ? error.message : "Couldn't load chatbot settings.");
       chatbotPrefix = "!";
     } finally {
       loadingSettings = false;
+    }
+  }
+
+  async function saveSceneTransition(): Promise<void> {
+    const duration = Math.max(100, Math.min(2000, Math.floor(Number(sceneTransitionDuration) || 400)));
+    sceneTransitionDuration = duration;
+
+    savingTransition = true;
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({
+          scene_transition: sceneTransition,
+          scene_transition_duration: duration
+        })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({ error: "Failed to save transition" }))) as {
+          error?: string;
+        };
+        throw new Error(payload.error ?? "Couldn't save scene transition.");
+      }
+
+      addToast("success", "Scene transition saved.");
+    } catch (error) {
+      addToast("error", error instanceof Error ? error.message : "Couldn't save scene transition.");
+    } finally {
+      savingTransition = false;
     }
   }
 
@@ -503,6 +548,49 @@
         </button>
         <button type="button" class="btn btn-secondary" disabled={!credentialsSaved} on:click={connectTwitch}>Connect Twitch</button>
       </div>
+    </div>
+  {/if}
+</div>
+
+<div class="mx-auto mt-6 w-full max-w-2xl rounded-2xl border border-base-300 bg-base-200 p-6 shadow-sm">
+  <h2 class="text-xl font-semibold">Scene transition</h2>
+  <p class="mt-1 text-sm text-base-content/70">
+    How the overlay animates when you switch scenes. Applies to the live overlay (OBS), not the editor.
+  </p>
+
+  {#if loadingSettings}
+    <div class="mt-4 text-sm text-base-content/70">Loading transition settings...</div>
+  {:else}
+    <div class="mt-4 flex flex-wrap items-end gap-4">
+      <label class="form-control w-48">
+        <span class="label-text mb-1">Type</span>
+        <select class="select select-bordered select-sm" bind:value={sceneTransition}>
+          <option value="cut">Cut (instant)</option>
+          <option value="fade">Fade</option>
+          <option value="slide-left">Slide left</option>
+          <option value="slide-right">Slide right</option>
+        </select>
+      </label>
+
+      <label class="form-control w-48">
+        <span class="label-text mb-1">Duration: {sceneTransitionDuration}ms</span>
+        <input
+          class="range range-primary range-sm"
+          type="range"
+          min="100"
+          max="2000"
+          step="50"
+          disabled={sceneTransition === "cut"}
+          bind:value={sceneTransitionDuration}
+        />
+      </label>
+
+      <button type="button" class="btn btn-sm" disabled={savingTransition} on:click={saveSceneTransition}>
+        {savingTransition ? "Saving..." : "Save Transition"}
+      </button>
+    </div>
+    <div class="mt-2 text-xs text-base-content/70">
+      Duration is ignored for <span class="font-mono">Cut</span>. Range 100–2000ms.
     </div>
   {/if}
 </div>

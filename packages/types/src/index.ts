@@ -35,10 +35,20 @@ export interface Scene {
   widgets: Widget[];
 }
 
+export type SceneTransitionType = "cut" | "fade" | "slide-left" | "slide-right";
+
+export interface SceneTransition {
+  type: SceneTransitionType;
+  duration: number;
+}
+
 export interface CanvasState {
   scenes: Scene[];
   layers: Layer[];
   activeSceneId: string;
+  // Overlay-wide scene transition config, attached to broadcast payloads only
+  // (not persisted with the canvas state).
+  transition?: SceneTransition;
 }
 
 export interface User {

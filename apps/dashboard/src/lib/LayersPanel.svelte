@@ -3,14 +3,15 @@
   import type { Widget } from "@anomalist/types";
   import { SocketEvents } from "@anomalist/types";
   import type { Socket } from "socket.io-client";
+  import { push as pushHistory, recordUpdateFromPayload } from "./canvas/history.js";
 
   export let socket: Socket | null = null;
   export let widgets: Widget[] = [];
-  export let selectedWidgetId: string | null = null;
+  export let selectedWidgetIds: string[] = [];
   export let activeSceneName = "Scene";
   export let canTransform = false;
 
-  const dispatch = createEventDispatcher<{ select: string }>();
+  const dispatch = createEventDispatcher<{ select: { id: string; additive: boolean } }>();
 
   let dragIndex: number | null = null;
   let dragOverIndex: number | null = null;
@@ -71,9 +72,13 @@
     }
 
     const nextArrayOrder = [...nextDisplayWidgets].reverse();
-    socket.emit(SocketEvents.WIDGET_REORDER, {
-      widgetIds: nextArrayOrder.map((widget) => widget.id)
-    });
+    const beforeIds = widgets.map((widget) => widget.id);
+    const afterIds = nextArrayOrder.map((widget) => widget.id);
+    socket.emit(SocketEvents.WIDGET_REORDER, { widgetIds: afterIds });
+
+    if (beforeIds.join("\n") !== afterIds.join("\n")) {
+      pushHistory({ kind: "reorder", before: beforeIds, after: afterIds });
+    }
   }
 
   function moveInDisplay(index: number, direction: "forward" | "backward"): void {
@@ -128,8 +133,8 @@
     onDragEnd();
   }
 
-  function selectWidget(widgetId: string): void {
-    dispatch("select", widgetId);
+  function selectWidget(widgetId: string, additive: boolean): void {
+    dispatch("select", { id: widgetId, additive });
   }
 
   function toggleWidgetVisibility(widget: Widget): void {
@@ -137,10 +142,12 @@
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_UPDATE, {
+    const payload = {
       id: widget.id,
       visible: !widget.visible
-    });
+    };
+    recordUpdateFromPayload(payload);
+    socket.emit(SocketEvents.WIDGET_UPDATE, payload);
   }
 </script>
 
@@ -159,7 +166,7 @@
       {#each displayWidgets as widget, i (widget.id)}
         <div
           role="listitem"
-          class={`flex items-center gap-2 rounded-lg border px-2 py-2 ${selectedWidgetId === widget.id ? "border-primary bg-primary/10" : "border-base-300 bg-base-100"} ${dragOverIndex === i ? "ring-2 ring-primary/35" : ""}`}
+          class={`flex items-center gap-2 rounded-lg border px-2 py-2 ${selectedWidgetIds.includes(widget.id) ? "border-primary bg-primary/10" : "border-base-300 bg-base-100"} ${dragOverIndex === i ? "ring-2 ring-primary/35" : ""}`}
           draggable={canTransform}
           on:dragstart={() => onDragStart(i)}
           on:dragend={onDragEnd}
@@ -176,7 +183,7 @@
             {TYPE_LABELS[widget.type] ?? "Wd"}
           </span>
 
-          <button type="button" class="min-w-0 flex-1 text-left" on:click={() => selectWidget(widget.id)}>
+          <button type="button" class="min-w-0 flex-1 text-left" on:click={(event) => selectWidget(widget.id, event.shiftKey)}>
             <span class="block truncate text-sm font-medium">{getWidgetLabel(widget)}</span>
             <span class="block text-xs text-base-content/60">{toTitleCase(widget.type)}</span>
           </button>

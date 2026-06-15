@@ -11,6 +11,7 @@
   import Login from "../lib/Login.svelte";
   import MediaLibrary from "../lib/MediaLibrary.svelte";
   import LayersPanel from "../lib/LayersPanel.svelte";
+  import ScenePreview from "../lib/ScenePreview.svelte";
   import Toast from "../lib/Toast.svelte";
   import UserManagement from "../lib/UserManagement.svelte";
   import StreamManager from "../lib/StreamManager.svelte";
@@ -29,6 +30,13 @@
   import ParticleSettings from "../lib/widgets/ParticleSettings.svelte";
   import TextSettings from "../lib/widgets/TextSettings.svelte";
   import TimerSettings from "../lib/widgets/TimerSettings.svelte";
+  import { CANVAS_HEIGHT, CANVAS_WIDTH, snapToGrid } from "../lib/canvas/snapping.js";
+  import {
+    clearHistory,
+    configureHistory,
+    push as pushHistory,
+    recordUpdateFromPayload
+  } from "../lib/canvas/history.js";
 
   type WidgetType = "text" | "image" | "timer" | "counter" | "marquee" | "clock" | "shape" | "soundboard" | "custom-html" | "chat" | "particle";
   type ViewState = "loading" | "setup" | "login" | "dashboard";
@@ -87,7 +95,8 @@
   let isConnected = false;
   let viewState: ViewState = "loading";
   let setupComplete = false;
-  let selectedWidgetId: string | null = null;
+  let selectedWidgetIds: string[] = [];
+  let pendingSelectWidgetIds: string[] = [];
   let selectedMediaUrl = "";
   let activeRightTab: "settings" | "media" | "layers" = "settings";
   let activeCenterPanel: "canvas" | "settings" | "stream" = "canvas";
@@ -113,9 +122,24 @@
   let leftPresetsExpanded = true;
 
   $: auth = $authStore;
+  let lastHistorySceneId: string | null = null;
+  $: {
+    const sceneId = $canvasState?.activeSceneId ?? null;
+    if (sceneId !== lastHistorySceneId) {
+      if (lastHistorySceneId !== null) {
+        clearHistory();
+      }
+      lastHistorySceneId = sceneId;
+    }
+  }
   $: activeScene = $canvasState?.scenes.find((scene) => scene.id === $canvasState.activeSceneId);
   $: scenes = $canvasState?.scenes ?? [];
   $: widgets = activeScene?.widgets ?? [];
+  $: configureHistory(socket, widgets);
+  $: recordingSocket = socket ? createRecordingSocket(socket) : null;
+  // Primary selection is the last-selected id; single-widget consumers key off it.
+  $: selectedWidgetId = selectedWidgetIds.length > 0 ? selectedWidgetIds[selectedWidgetIds.length - 1] : null;
+  $: selectedWidgets = widgets.filter((widget) => selectedWidgetIds.includes(widget.id));
   $: selectedWidget = selectedWidgetId ? widgets.find((widget) => widget.id === selectedWidgetId) ?? null : null;
   $: canWidgetAdd = auth.permissions.includes("widget.add");
   $: canWidgetRemove = auth.permissions.includes("widget.remove");
@@ -151,8 +175,18 @@
         .filter((item) => item.url.startsWith("/media/"));
     });
 
-  $: if (selectedWidgetId && !widgets.some((widget) => widget.id === selectedWidgetId)) {
-    selectedWidgetId = null;
+  $: if (pendingSelectWidgetIds.length > 0 && pendingSelectWidgetIds.every((id) => widgets.some((widget) => widget.id === id))) {
+    selectedWidgetIds = pendingSelectWidgetIds;
+    pendingSelectWidgetIds = [];
+  }
+
+  $: {
+    const pruned = selectedWidgetIds.filter(
+      (id) => pendingSelectWidgetIds.includes(id) || widgets.some((widget) => widget.id === id)
+    );
+    if (pruned.length !== selectedWidgetIds.length) {
+      selectedWidgetIds = pruned;
+    }
   }
 
   $: {
@@ -173,6 +207,21 @@
         }, 140);
       }
     }
+  }
+
+  // Settings panels emit WIDGET_UPDATE directly on the socket they're given.
+  // This wrapper records those updates into undo history before forwarding,
+  // so each panel doesn't need its own history hook.
+  function createRecordingSocket(real: Socket): Socket {
+    const wrapped = Object.create(real) as Socket;
+    wrapped.emit = ((event: string, ...args: unknown[]) => {
+      if (event === SocketEvents.WIDGET_UPDATE && args[0] && typeof args[0] === "object") {
+        recordUpdateFromPayload(args[0] as Parameters<typeof recordUpdateFromPayload>[0]);
+      }
+      real.emit(event, ...args);
+      return wrapped;
+    }) as Socket["emit"];
+    return wrapped;
   }
 
   function disconnectSocket() {
@@ -305,7 +354,7 @@
     disconnectSocket();
     stopTwitchStatusPolling();
     twitchConnectionState = "unknown";
-    selectedWidgetId = null;
+    selectedWidgetIds = [];
     showUserManagement = false;
     canvasState.set(null);
     await logout();
@@ -391,17 +440,126 @@
     }
 
     const widget = createWidget(type);
-    selectedWidgetId = widget.id;
+    pendingSelectWidgetIds = [widget.id];
     socket.emit(SocketEvents.WIDGET_ADD, widget);
+    pushHistory({ kind: "add", widget });
   }
 
   function removeSelectedWidget() {
-    if (!socket || !selectedWidget || !canWidgetRemove) {
+    if (!socket || selectedWidgets.length === 0 || !canWidgetRemove) {
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_REMOVE, { id: selectedWidget.id });
-    selectedWidgetId = null;
+    if (selectedWidgets.length === 1) {
+      const widget = selectedWidgets[0];
+      const index = widgets.findIndex((item) => item.id === widget.id);
+      pushHistory({ kind: "remove", widget: structuredClone(widget), index });
+      socket.emit(SocketEvents.WIDGET_REMOVE, { id: widget.id });
+    } else {
+      const entries = selectedWidgets.map((widget) => ({
+        widget: structuredClone(widget),
+        index: widgets.findIndex((item) => item.id === widget.id)
+      }));
+      pushHistory({ kind: "removeGroup", entries });
+      for (const entry of entries) {
+        socket.emit(SocketEvents.WIDGET_REMOVE, { id: entry.widget.id });
+      }
+    }
+    selectedWidgetIds = [];
+  }
+
+  function duplicateSelectedWidget() {
+    if (!socket || selectedWidgets.length === 0 || !canWidgetAdd) {
+      return;
+    }
+
+    const copies = selectedWidgets.map((widget) => {
+      const copy: Widget = structuredClone(widget);
+      copy.id = crypto.randomUUID();
+      copy.x = Math.min(Math.max(0, widget.x + 20), Math.max(0, CANVAS_WIDTH - copy.width));
+      copy.y = Math.min(Math.max(0, widget.y + 20), Math.max(0, CANVAS_HEIGHT - copy.height));
+      return copy;
+    });
+
+    pendingSelectWidgetIds = copies.map((copy) => copy.id);
+    for (const copy of copies) {
+      socket.emit(SocketEvents.WIDGET_ADD, copy);
+    }
+
+    if (copies.length === 1) {
+      pushHistory({ kind: "add", widget: copies[0] });
+    } else {
+      pushHistory({ kind: "addGroup", widgets: structuredClone(copies) });
+    }
+  }
+
+  // Create an image-type widget for dropped media, centered on the drop point,
+  // grid-snapped when snap is on, clamped to the canvas, visible, selected, and
+  // pushed as one undo entry.
+  function createMediaWidget(url: string, dropX: number, dropY: number, width: number, height: number, snap: boolean) {
+    if (!socket || !canWidgetAdd) {
+      return;
+    }
+
+    let x = dropX - width / 2;
+    let y = dropY - height / 2;
+    if (snap) {
+      x = snapToGrid(x);
+      y = snapToGrid(y);
+    }
+    x = Math.min(Math.max(0, x), Math.max(0, CANVAS_WIDTH - width));
+    y = Math.min(Math.max(0, y), Math.max(0, CANVAS_HEIGHT - height));
+
+    const widget = createWidget("image");
+    widget.x = Math.round(x);
+    widget.y = Math.round(y);
+    widget.width = Math.round(width);
+    widget.height = Math.round(height);
+    widget.visible = true; // a deliberate drop should appear immediately (incl. in the overlay)
+    widget.props = { ...widget.props, url };
+
+    pendingSelectWidgetIds = [widget.id];
+    socket.emit(SocketEvents.WIDGET_ADD, widget);
+    pushHistory({ kind: "add", widget });
+  }
+
+  function handleMediaDrop(
+    event: CustomEvent<{ url: string; kind: string; name: string; x: number; y: number; snap: boolean }>
+  ) {
+    const { url, kind, x, y, snap } = event.detail;
+
+    if (kind === "audio") {
+      addToast("info", "Audio belongs to the soundboard. Add a soundboard widget, then pick this sound in its settings.");
+      return;
+    }
+
+    if (!socket || !canWidgetAdd) {
+      return;
+    }
+
+    const defaults = createWidget("image"); // for the fallback default size
+
+    if (kind === "video") {
+      createMediaWidget(url, x, y, defaults.width, defaults.height, snap);
+      return;
+    }
+
+    // image: size to natural dimensions, clamped to 40% of canvas width.
+    const probe = new Image();
+    probe.onload = () => {
+      const maxWidth = CANVAS_WIDTH * 0.4;
+      let width = probe.naturalWidth || defaults.width;
+      let height = probe.naturalHeight || defaults.height;
+      if (width > maxWidth) {
+        height = height * (maxWidth / width);
+        width = maxWidth;
+      }
+      createMediaWidget(url, x, y, width, height, snap);
+    };
+    probe.onerror = () => {
+      createMediaWidget(url, x, y, defaults.width, defaults.height, snap);
+    };
+    probe.src = url;
   }
 
   function isTextWidgetType(type: string): boolean {
@@ -417,7 +575,7 @@
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_UPDATE, {
+    recordingSocket?.emit(SocketEvents.WIDGET_UPDATE, {
       id: selectedWidgetId,
       props: {
         effects
@@ -461,7 +619,7 @@
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_UPDATE, {
+    recordingSocket?.emit(SocketEvents.WIDGET_UPDATE, {
       id: selectedWidgetId,
       props: {
         entranceAnimation: next
@@ -474,7 +632,7 @@
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_UPDATE, {
+    recordingSocket?.emit(SocketEvents.WIDGET_UPDATE, {
       id: selectedWidget.id,
       visible: !selectedWidget.visible
     });
@@ -516,8 +674,25 @@
     persistBool("anomalist_left_presets_expanded", leftPresetsExpanded);
   }
 
-  function handleCanvasSelect(event: CustomEvent<string | null>) {
-    selectedWidgetId = event.detail;
+  function handleCanvasSelect(event: CustomEvent<string[]>) {
+    selectedWidgetIds = event.detail;
+  }
+
+  function handleLayersSelect(event: CustomEvent<{ id: string; additive: boolean }>) {
+    const { id, additive } = event.detail;
+    if (additive) {
+      const widget = widgets.find((item) => item.id === id);
+      if (!widget || widget.locked === true) {
+        return;
+      }
+      selectedWidgetIds = selectedWidgetIds.includes(id)
+        ? selectedWidgetIds.filter((item) => item !== id)
+        : [...selectedWidgetIds, id];
+      return;
+    }
+
+    selectedWidgetIds = [id];
+    activeCenterPanel = "canvas";
   }
 
   function switchScene(sceneId: string) {
@@ -621,6 +796,10 @@
       return;
     }
 
+    const scene = $canvasState?.scenes.find((item) => item.id === sceneToClear?.id);
+    if (scene && scene.widgets.length > 0) {
+      pushHistory({ kind: "clear", sceneId: scene.id, widgets: structuredClone(scene.widgets) });
+    }
     socket.emit(SocketEvents.SCENE_CLEAR, { sceneId: sceneToClear.id });
     cancelSceneClear();
   }
@@ -645,7 +824,7 @@
       return;
     }
 
-    socket.emit(SocketEvents.WIDGET_UPDATE, {
+    recordingSocket?.emit(SocketEvents.WIDGET_UPDATE, {
       id: selectedWidget.id,
       props: { url }
     });
@@ -849,9 +1028,10 @@
             {#if leftScenesExpanded}
             <div class="flex flex-col gap-2">
               {#each scenes as scene (scene.id)}
-                <div class={`rounded-lg border p-2 ${scene.id === $canvasState?.activeSceneId ? "border-primary bg-primary/10" : "border-base-300"}`}>
+                {@const isActive = scene.id === $canvasState?.activeSceneId}
+                <div class={`group overflow-hidden rounded-lg border ${isActive ? "border-accent bg-accent/10" : "border-base-300"}`}>
                   {#if editingSceneId === scene.id}
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 p-2">
                       <input
                         class="input input-bordered input-xs w-full"
                         bind:value={editingSceneName}
@@ -860,11 +1040,26 @@
                       <button type="button" class="btn btn-xs" on:click={saveSceneRename}>Save</button>
                     </div>
                   {:else}
-                    <div class="flex items-center justify-between gap-2">
-                      <button type="button" class="btn btn-ghost btn-xs flex-1 justify-start" on:click={() => switchScene(scene.id)}>
-                        <span class="truncate">{getSceneName(scene)}</span>
-                        <span class="badge badge-neutral badge-sm">{getSceneWidgetCount(scene)}</span>
-                      </button>
+                    <button
+                      type="button"
+                      class="block w-full p-2 text-left"
+                      aria-label={`Switch to ${scene.name}`}
+                      aria-current={isActive ? "true" : undefined}
+                      on:click={() => switchScene(scene.id)}
+                    >
+                      <ScenePreview {scene} />
+                      <div class="mt-1.5 flex items-center justify-between gap-2">
+                        <span class="truncate text-sm font-medium">{getSceneName(scene)}</span>
+                        <div class="flex shrink-0 items-center gap-1">
+                          <span class="badge badge-neutral badge-sm">{getSceneWidgetCount(scene)}</span>
+                          {#if isActive}
+                            <span class="inline-block h-2 w-2 rounded-full bg-accent" aria-label="Active scene"></span>
+                          {/if}
+                        </div>
+                      </div>
+                    </button>
+
+                    <div class="flex items-center gap-1 border-t border-base-300/60 px-2 py-1">
                       <button
                         type="button"
                         class="btn btn-ghost btn-xs"
@@ -874,21 +1069,18 @@
                       >
                         Edit
                       </button>
-                    </div>
-
-                    {#if scene.id === $canvasState?.activeSceneId && scene.widgets.length > 0}
-                      <div class="mt-1">
+                      {#if isActive && scene.widgets.length > 0}
                         <button
                           type="button"
-                          class="btn btn-outline btn-xs w-full text-warning"
+                          class="btn btn-ghost btn-xs ml-auto text-warning"
                           aria-label="Clear scene"
                           disabled={!canWidgetRemove}
                           on:click={() => requestSceneClear(scene)}
                         >
-                          Clear Scene
+                          Clear
                         </button>
-                      </div>
-                    {/if}
+                      {/if}
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -1006,9 +1198,12 @@
                   <Canvas
                     stagingState={$canvasState}
                     {socket}
-                    {selectedWidgetId}
+                    {selectedWidgetIds}
                     canTransform={canWidgetTransform}
                     on:select={handleCanvasSelect}
+                    on:requestDelete={removeSelectedWidget}
+                    on:requestDuplicate={duplicateSelectedWidget}
+                    on:mediaDrop={handleMediaDrop}
                   />
                 {:else}
                   <span class="loading loading-dots loading-md"></span>
@@ -1046,11 +1241,34 @@
           </div>
 
           {#if activeRightTab === "settings"}
-            {#if selectedWidget}
+            {#if selectedWidgets.length > 1}
+              <div class="flex flex-col gap-4">
+                <div class="rounded-xl border border-base-300 bg-base-100 p-4 text-center">
+                  <div class="text-lg font-semibold">{selectedWidgets.length} widgets selected</div>
+                  <p class="mt-1 text-sm text-base-content/60">Drag or arrow-nudge to move them together.</p>
+                </div>
+                <div class="flex gap-2">
+                  <button type="button" class="btn btn-sm flex-1" disabled={!canWidgetAdd} on:click={duplicateSelectedWidget}>
+                    Duplicate All
+                  </button>
+                  <button type="button" class="btn btn-error btn-sm flex-1" disabled={!canWidgetRemove} on:click={removeSelectedWidget}>
+                    Delete All
+                  </button>
+                </div>
+              </div>
+            {:else if selectedWidget}
               <div class="flex flex-col gap-4">
                 <div class="flex items-center justify-between">
                   <span class="badge badge-primary badge-outline">{selectedWidget.type}</span>
                   <div class="flex items-center gap-2">
+                    <div class="tooltip tooltip-left" data-tip="Duplicate widget (Ctrl+D)">
+                      <button type="button" class="btn btn-sm" disabled={!canWidgetAdd} aria-label="Duplicate widget" on:click={duplicateSelectedWidget}>
+                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                    </div>
                     <button type="button" class="btn btn-sm" disabled={!canWidgetTransform} on:click={toggleWidgetLock}>
                       {selectedWidget.locked ? "🔓 Unlock" : "🔒 Lock"}
                     </button>
@@ -1071,27 +1289,27 @@
 
                   {#if canWidgetEdit}
                     {#if selectedWidget.type === "text"}
-                      <TextSettings widget={selectedWidget} {socket} />
+                      <TextSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "image"}
-                      <ImageSettings widget={selectedWidget} {socket} onOpenLibrary={openMediaLibrary} />
+                      <ImageSettings widget={selectedWidget} socket={recordingSocket} onOpenLibrary={openMediaLibrary} />
                     {:else if selectedWidget.type === "timer"}
-                      <TimerSettings widget={selectedWidget} {socket} />
+                      <TimerSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "counter"}
-                      <CounterSettings widget={selectedWidget} {socket} />
+                      <CounterSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "marquee"}
-                      <MarqueeSettings widget={selectedWidget} {socket} />
+                      <MarqueeSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "clock"}
-                      <ClockSettings widget={selectedWidget} {socket} />
+                      <ClockSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "shape"}
-                      <ShapeSettings widget={selectedWidget} {socket} />
+                      <ShapeSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "soundboard"}
-                      <SoundboardSettings widget={selectedWidget} {socket} />
+                      <SoundboardSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "chat"}
-                      <ChatSettings widget={selectedWidget} {socket} />
+                      <ChatSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "particle"}
-                      <ParticleSettings widget={selectedWidget} {socket} />
+                      <ParticleSettings widget={selectedWidget} socket={recordingSocket} />
                     {:else if selectedWidget.type === "custom-html"}
-                      <CustomHtmlSettings widget={selectedWidget} {socket} />
+                      <CustomHtmlSettings widget={selectedWidget} socket={recordingSocket} />
                     {/if}
                   {:else}
                     <div class="alert alert-warning text-sm">You can view widgets, but do not have permission to edit widget settings.</div>
@@ -1162,7 +1380,7 @@
               </div>
             {/if}
           {:else if activeRightTab === "media"}
-            <MediaLibrary onSelect={handleMediaSelect} />
+            <MediaLibrary onSelect={handleMediaSelect} canAdd={canWidgetAdd} />
 
             {#if !selectedWidget || selectedWidget.type !== "image"}
               <label class="form-control mt-3">
@@ -1174,13 +1392,10 @@
             <LayersPanel
               {socket}
               {widgets}
-              {selectedWidgetId}
+              {selectedWidgetIds}
               activeSceneName={activeScene?.name ?? "Scene"}
               canTransform={canWidgetTransform}
-              on:select={(event) => {
-                selectedWidgetId = event.detail;
-                activeCenterPanel = "canvas";
-              }}
+              on:select={handleLayersSelect}
             />
           {/if}
 

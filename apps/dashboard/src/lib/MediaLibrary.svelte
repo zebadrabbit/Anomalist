@@ -17,6 +17,23 @@
 
   export let onSelect: ((url: string, item?: MediaItem) => void) | undefined;
   export let initialFilter: MediaFilter = "all";
+  // Items are only draggable-to-canvas when the user can add widgets; this is the
+  // cleanest signal that drag-to-canvas is unavailable.
+  export let canAdd = false;
+
+  const MEDIA_DRAG_MIME = "application/x-anomalist-media";
+
+  function onMediaDragStart(event: DragEvent, item: MediaItem): void {
+    if (!canAdd || !event.dataTransfer) {
+      return;
+    }
+
+    event.dataTransfer.setData(
+      MEDIA_DRAG_MIME,
+      JSON.stringify({ url: item.url, kind: item.mediaType, name: item.originalName })
+    );
+    event.dataTransfer.effectAllowed = "copy";
+  }
 
   let items: MediaItem[] = [];
   let selectedFilter: MediaFilter = "all";
@@ -279,7 +296,13 @@
           >
             x
           </button>
-          <button type="button" class="w-full text-left" on:click={() => handleSelect(item)}>
+          <button
+            type="button"
+            class={`w-full text-left ${canAdd ? "cursor-grab active:cursor-grabbing" : ""}`}
+            draggable={canAdd}
+            on:dragstart={(event) => onMediaDragStart(event, item)}
+            on:click={() => handleSelect(item)}
+          >
             {#if isVideo(item)}
               <video class="block aspect-video w-full bg-neutral object-cover" src={item.url} muted autoplay loop playsinline></video>
             {:else if isAudio(item)}

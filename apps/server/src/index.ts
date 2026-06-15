@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { Server } from "socket.io";
 import multer from "multer";
-import type { CanvasState, SoundPlay, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
+import type { CanvasState, SceneTransition, SceneTransitionType, SoundPlay, Widget, WidgetTransform, WidgetUpdate } from "@anomalist/types";
 import { SocketEvents } from "@anomalist/types";
 import {
   clearTwitchConfig,
@@ -1047,6 +1047,30 @@ function getCanvasState(): CanvasState {
   return canvasState;
 }
 
+const SCENE_TRANSITION_TYPES = new Set<SceneTransitionType>(["cut", "fade", "slide-left", "slide-right"]);
+
+// Read the overlay-wide transition config from settings, clamping to safe
+// values. Defaults to an instant cut so upgrades behave exactly as before.
+function getSceneTransition(): SceneTransition {
+  const rawType = getSetting("scene_transition");
+  const type = rawType && SCENE_TRANSITION_TYPES.has(rawType as SceneTransitionType)
+    ? (rawType as SceneTransitionType)
+    : "cut";
+
+  const rawDuration = Number(getSetting("scene_transition_duration"));
+  const duration = Number.isFinite(rawDuration)
+    ? Math.max(100, Math.min(2000, Math.floor(rawDuration)))
+    : 400;
+
+  return { type, duration };
+}
+
+// Broadcast payload: the live canvas state plus the current transition config.
+// The transition is attached only here, never persisted with the scene data.
+function canvasBroadcast(): CanvasState {
+  return { ...canvasState, transition: getSceneTransition() };
+}
+
 function setWidgetProps(widgetId: string, props: Record<string, unknown>): void {
   let targetWidget: Widget | null = null;
   for (const scene of canvasState.scenes) {
@@ -1066,7 +1090,7 @@ function setWidgetProps(widgetId: string, props: Record<string, unknown>): void 
     ...props
   };
   saveState("canvas", canvasState);
-  io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+  io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
 }
 
 if (isProduction) {
@@ -1121,6 +1145,15 @@ function isVisibilityOnlyUpdate(incomingWidget: Widget | WidgetUpdate): boolean 
     && keys[0] === "visible"
     && typeof (incomingWidget as { visible?: unknown }).visible === "boolean"
   );
+}
+
+const TRANSFORM_FIELDS = new Set(["x", "y", "width", "height", "rotation"]);
+
+// Drag/resize/rotate commits send only transform fields; they need
+// widget.transform (like the live WIDGET_TRANSFORM stream), not widget.edit.
+function isTransformOnlyUpdate(incomingWidget: Widget | WidgetUpdate): boolean {
+  const keys = Object.keys(incomingWidget).filter((key) => key !== "id");
+  return keys.length > 0 && keys.every((key) => TRANSFORM_FIELDS.has(key));
 }
 
 function touchesTransformFields(incomingWidget: Widget | WidgetUpdate): boolean {
@@ -1212,7 +1245,7 @@ io.on("connection", (socket) => {
     socket.emit(SocketEvents.AUTH_SUCCESS, {
       user: buildUserResponse(user)
     });
-    socket.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    socket.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.USER_JOIN, () => {
@@ -1242,13 +1275,15 @@ io.on("connection", (socket) => {
       createdBy: typeof creator === "string" ? creator : widget.createdBy
     });
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Widget | WidgetUpdate) => {
     const requiredPermission = isVisibilityOnlyUpdate(incomingWidget)
       ? Permissions.WIDGET_VISIBILITY
-      : Permissions.WIDGET_EDIT;
+      : isTransformOnlyUpdate(incomingWidget)
+        ? Permissions.WIDGET_TRANSFORM
+        : Permissions.WIDGET_EDIT;
     if (!can(socket, requiredPermission)) {
       denyPermission(socket, SocketEvents.WIDGET_UPDATE, requiredPermission);
       return;
@@ -1288,7 +1323,7 @@ io.on("connection", (socket) => {
     }
 
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_LOCK, (payload: { widgetId: string; locked: boolean }) => {
@@ -1308,7 +1343,7 @@ io.on("connection", (socket) => {
 
     widget.locked = payload.locked;
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
@@ -1346,7 +1381,7 @@ io.on("connection", (socket) => {
     activeScene.widgets = [...reordered, ...extras];
 
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
@@ -1362,7 +1397,7 @@ io.on("connection", (socket) => {
 
     activeScene.widgets = activeScene.widgets.filter((widget) => widget.id !== payload.id);
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.SCENE_CHANGE, (payload: { sceneId: string }) => {
@@ -1378,7 +1413,7 @@ io.on("connection", (socket) => {
 
     canvasState.activeSceneId = payload.sceneId;
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.SCENE_CLEAR, (payload: { sceneId: string }) => {
@@ -1398,7 +1433,7 @@ io.on("connection", (socket) => {
 
     scene.widgets = [];
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.PLAY_SOUND, (data: SoundPlay) => {
@@ -1451,7 +1486,7 @@ io.on("connection", (socket) => {
 
     activeScene.widgets = JSON.parse(JSON.stringify(preset.widgets)) as Widget[];
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasState);
+    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
     emitPresetListToDashboards();
   });
 
