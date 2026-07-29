@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Needs no node_modules, so it fails in seconds rather than after a
+      # full monorepo install.
+      - name: Check docs screenshots
+        run: bash scripts/check-screenshots.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          # .nvmrc is the single source of truth, kept in step with
+          # node:22-alpine in apps/server/Dockerfile.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Resolves @anomalist/types through its "types" export condition (src/),
+      # so this needs no prior build and is the cheapest gate.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The root "prebuild" hook builds packages/types first. Without it the
+      # dashboard and overlay builds fail on a clean checkout, because they
+      # resolve @anomalist/types through its "node" condition to dist/, which
+      # is gitignored. This step also runs vitepress build.
+      - name: Build
+        run: npm run build
+
+      # After Build on purpose: the SPA fallback test writes stand-in
+      # apps/*/build/index.html files only when a real build is absent.
+      - name: Test
+        run: npm test
