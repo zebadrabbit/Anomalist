@@ -65,7 +65,7 @@
       <div class="h-56 overflow-hidden rounded border border-base-300">
         <iframe
           srcdoc={html}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           style="width:100%;height:100%;border:none;background:transparent;"
           title="Custom HTML preview"
         ></iframe>

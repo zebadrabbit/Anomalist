@@ -1,6 +1,7 @@
 import type { CanvasState } from "@anomalist/types";
 import type { Server } from "socket.io";
 import WebSocket from "ws";
+import { AUTHED_ROOM } from "./broadcast.js";
 import { getSetting, getTwitchConfig, setSetting } from "./db.js";
 import { getTwitchToken } from "./twitch.js";
 
@@ -202,7 +203,7 @@ export async function handleEvent(
   const user = typeof userRaw === "string" && userRaw.trim().length > 0 ? userRaw : "Someone";
   const viewers = typeof event.viewers === "number" ? event.viewers : undefined;
 
-  io.emit("twitch:alert", {
+  io.to(AUTHED_ROOM).emit("twitch:alert", {
     type: mappedType,
     user,
     viewers,

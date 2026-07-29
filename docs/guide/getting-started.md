@@ -24,9 +24,12 @@ Edit `.env` before starting:
 
 | Variable | Description | Default |
 |---|---|---|
-| `PORT` | Port the server listens on | `3000` |
+| `PORT` | Port the server listens on | `3001` |
 | `OWNER_TOKEN` | Emergency backdoor token (set once, keep safe) | — |
-| `DATA_DIR` | Where SQLite and media files are stored | `./data` |
+| `DB_PATH` | Where the SQLite database lives | `./anomalist.db` |
+| `MEDIA_DIR` | Where uploaded media is stored | `./media` |
+| `MEDIA_MAX_BYTES` | Largest upload accepted | `104857600` (100 MB) |
+| `CORS_ORIGIN` | Comma-separated origins allowed to connect | all |
 
 ::: tip
 `OWNER_TOKEN` is a last-resort access method. Once your owner account is created during first-run setup, you won't need it day-to-day.
@@ -34,12 +37,23 @@ Edit `.env` before starting:
 
 ## Adding the OBS browser source
 
-1. In OBS, add a **Browser Source**
-2. Set the URL to `http://your-server:3000/overlay`
-3. Match the width and height to your stream resolution (e.g. 1920×1080)
-4. Uncheck **Shutdown source when not visible**
+The overlay needs its own access token, so copy the URL from the dashboard rather than
+typing it by hand.
+
+1. In the dashboard, open **Settings** and find **Overlay URL**
+2. Click **Copy** — the URL looks like `http://your-server:3001/overlay?token=...`
+3. In OBS, add a **Browser Source** and paste that URL
+4. Match the width and height to your stream resolution (e.g. 1920×1080)
+5. Uncheck **Shutdown source when not visible**
 
 That's it — the overlay updates live as you make changes in the dashboard.
+
+::: warning
+The overlay URL is a credential. It is read-only — it can display your overlay but never
+change it — but anyone holding the link can watch your overlay, so don't show it on stream
+or paste it in chat. If it leaks, click **Rotate** in Settings; overlays using the old link
+are disconnected immediately and you re-paste the new URL into OBS.
+:::
 
 ## Updating
 

@@ -314,7 +314,8 @@
 
     socket.on(SocketEvents.CANVAS_UPDATE, (nextState: CanvasState) => {
       canvasState.set(nextState);
-      if (!hasRequestedPresets) {
+      // Presets need scene.manage; asking without it just earns a denial toast.
+      if (!hasRequestedPresets && canSceneManage) {
         socket?.emit(SocketEvents.PRESET_LIST);
         hasRequestedPresets = true;
       }
