@@ -297,10 +297,15 @@
       chatMessages = chatMessages.filter((item) => item.timestamp > cutoff);
     }, 10_000);
 
+    // Re-authenticate on every connect, not just the first. OBS keeps this page
+    // open for hours, and after a dropped connection socket.io reconnects with a
+    // brand new server-side socket that has not joined yet.
     const joinToken = new URLSearchParams(window.location.search).get("token");
-    if (joinToken) {
-      socket.emit(JOIN_EVENT, { token: joinToken });
-    }
+    socket.on("connect", () => {
+      if (joinToken) {
+        socket?.emit(JOIN_EVENT, { token: joinToken });
+      }
+    });
 
     socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
       const { id, ...transform } = data;

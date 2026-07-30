@@ -17,13 +17,19 @@ db.exec(`
     mimetype TEXT NOT NULL,
     mediaType TEXT NOT NULL DEFAULT 'image',
     size INTEGER NOT NULL,
-    uploadedAt TEXT NOT NULL
+    uploadedAt TEXT NOT NULL,
+    uploadedBy TEXT NOT NULL DEFAULT ''
   );
 `);
 
 const mediaColumns = db.prepare("PRAGMA table_info(media_items)").all() as Array<{ name: string }>;
 if (!mediaColumns.some((column) => column.name === "mediaType")) {
   db.exec("ALTER TABLE media_items ADD COLUMN mediaType TEXT NOT NULL DEFAULT 'image';");
+}
+// Pre-existing rows have no known uploader, so they fall back to '' — which
+// matches no user id and therefore requires media.delete.any to remove.
+if (!mediaColumns.some((column) => column.name === "uploadedBy")) {
+  db.exec("ALTER TABLE media_items ADD COLUMN uploadedBy TEXT NOT NULL DEFAULT '';");
 }
 
 export function getMediaType(mimetype: string): "image" | "video" | "audio" {
@@ -46,22 +52,23 @@ export interface MediaItem {
   mediaType: "image" | "video" | "audio";
   size: number;
   uploadedAt: string;
+  uploadedBy: string;
   url: string;
 }
 
 const insertMediaItemStmt = db.prepare(`
-  INSERT INTO media_items (id, filename, originalName, mimetype, mediaType, size, uploadedAt)
-  VALUES (@id, @filename, @originalName, @mimetype, @mediaType, @size, @uploadedAt)
+  INSERT INTO media_items (id, filename, originalName, mimetype, mediaType, size, uploadedAt, uploadedBy)
+  VALUES (@id, @filename, @originalName, @mimetype, @mediaType, @size, @uploadedAt, @uploadedBy)
 `);
 
 const listMediaItemsStmt = db.prepare(`
-  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt
+  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt, uploadedBy
   FROM media_items
   ORDER BY uploadedAt DESC
 `);
 
 const selectMediaItemStmt = db.prepare(`
-  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt
+  SELECT id, filename, originalName, mimetype, mediaType, size, uploadedAt, uploadedBy
   FROM media_items
   WHERE id = ?
 `);
@@ -77,6 +84,11 @@ function withUrl(row: Omit<MediaItem, "url">): MediaItem {
 
 export function saveMediaItem(item: Omit<MediaItem, "url">): void {
   insertMediaItemStmt.run(item);
+}
+
+export function getMediaItem(id: string): MediaItem | null {
+  const row = selectMediaItemStmt.get(id) as Omit<MediaItem, "url"> | undefined;
+  return row ? withUrl(row) : null;
 }
 
 export function listMediaItems(): MediaItem[] {

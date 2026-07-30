@@ -8,14 +8,24 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
+    "prebuild": "npm run build --workspace=packages/types",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "docs:dev": "npm --workspace @anomalist/docs run dev",
     "docs:build": "npm --workspace @anomalist/docs run build",
     "docs:screenshots": "npm --workspace @anomalist/docs run screenshots",
-    "docs:screenshots:local": "bash scripts/docs-screenshots-local.sh"
+    "docs:screenshots:local": "bash scripts/docs-screenshots-local.sh",
+    "pretest": "npm run build --workspace=packages/types",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "//devDependencies": "express runs on 4.x, but @types/multer depends on @types/express '*'. Without pinning the hoisted copy here, npm installs v5 types at the root alongside v4 in apps/server, and tsc then sees two incompatible Request types. The override alone is not enough: npm only applies it when the lockfile is regenerated, so npm ci silently reproduces the split.",
+  "devDependencies": {
+    "@types/express": "^4.17.21"
+  },
+  "overrides": {
+    "@types/express": "^4.17.21"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

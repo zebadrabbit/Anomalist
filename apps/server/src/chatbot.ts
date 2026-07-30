@@ -2,6 +2,7 @@ import tmi from "tmi.js";
 import type { CanvasState, Widget } from "@anomalist/types";
 import { SocketEvents } from "@anomalist/types";
 import type { Server } from "socket.io";
+import { AUTHED_ROOM } from "./broadcast.js";
 import { getSetting, getTwitchConfig } from "./db.js";
 import { getTwitchToken } from "./twitch.js";
 
@@ -55,7 +56,7 @@ export async function handleChatMessage(
     return;
   }
 
-  io.emit(SocketEvents.CHAT_MESSAGE, {
+  io.to(AUTHED_ROOM).emit(SocketEvents.CHAT_MESSAGE, {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     username: userstate["display-name"] ?? userstate.username ?? "unknown",
     color: userstate.color ?? "#9146FF",
@@ -100,7 +101,7 @@ export async function handleChatMessage(
       ? matchedSound.volume
       : 1;
     const clampedVolume = Math.min(1, Math.max(0, perSoundVolume));
-    io.emit("sound:play", { url: matchedSound.url, volume: clampedVolume });
+    io.to(AUTHED_ROOM).emit("sound:play", { url: matchedSound.url, volume: clampedVolume });
     return;
   }
 

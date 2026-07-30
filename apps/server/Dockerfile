@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -17,7 +17,7 @@ RUN npm run build --workspace=apps/dashboard
 RUN npm run build --workspace=apps/overlay
 RUN npm run build --workspace=apps/server
 
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 WORKDIR /app
 
 COPY package.json package-lock.json ./

@@ -40,13 +40,14 @@ import {
   type UserPermissionOverrideRow,
   type UserRow
 } from "./db.js";
-import { MEDIA_DIR, deleteMediaItem, getMediaType, listMediaItems, saveMediaItem } from "./media.js";
+import { MEDIA_DIR, deleteMediaItem, getMediaItem, getMediaType, listMediaItems, saveMediaItem } from "./media.js";
 import {
   Permissions,
   listAllPermissions,
   resolvePermission,
   type Permission
 } from "./permissions.js";
+import { AUTHED_ROOM } from "./broadcast.js";
 import { buildOAuthUrl, exchangeCode, getTwitchToken } from "./twitch.js";
 import { isChatbotConnected, startChatbot, stopChatbot } from "./chatbot.js";
 import {
@@ -61,6 +62,10 @@ const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
 const OWNER_TOKEN_FALLBACK_USER_ID = "owner-token-fallback";
+const OVERLAY_TOKEN_SETTING = "overlay_token";
+const OVERLAY_USER_ID = "overlay";
+// Deliberately absent from the permission table, so it resolves to zero rights.
+const OVERLAY_ROLE = "overlay";
 
 const configuredOwnerToken = process.env.OWNER_TOKEN;
 const hasConfiguredOwnerToken = !!configuredOwnerToken && configuredOwnerToken !== "change-me";
@@ -105,29 +110,48 @@ function createDefaultState(): CanvasState {
   };
 }
 
-const allowedMimetypes = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "video/mp4",
-  "video/mpeg",
-  "video/webm",
-  "audio/mpeg",
-  "audio/wav",
-  "audio/ogg",
-  "audio/webm",
-  "audio/flac"
+// The allowlist and the on-disk extension come from the same table on purpose:
+// the stored name must never be derived from the client-supplied filename, or
+// an "image/png" upload called shell.html gets served back as HTML.
+const extensionByMimetype = new Map([
+  ["image/jpeg", ".jpg"],
+  ["image/png", ".png"],
+  ["image/gif", ".gif"],
+  ["image/webp", ".webp"],
+  ["video/mp4", ".mp4"],
+  ["video/mpeg", ".mpeg"],
+  ["video/webm", ".webm"],
+  ["audio/mpeg", ".mp3"],
+  ["audio/wav", ".wav"],
+  ["audio/ogg", ".ogg"],
+  ["audio/webm", ".weba"],
+  ["audio/flac", ".flac"]
 ]);
 
+const UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
+
+// ponytail: 100 MB default covers stinger videos; raise MEDIA_MAX_BYTES if
+// someone needs longer clips.
+const maxUploadBytes = Number(process.env.MEDIA_MAX_BYTES ?? 100 * 1024 * 1024);
+
 const upload = multer({
+  limits: { fileSize: maxUploadBytes },
+  fileFilter: (_req, file, cb) => {
+    if (!extensionByMimetype.has(file.mimetype)) {
+      const error = new Error("Unsupported media type") as Error & { code?: string };
+      error.code = UNSUPPORTED_MEDIA_TYPE;
+      cb(error);
+      return;
+    }
+
+    cb(null, true);
+  },
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
       cb(null, MEDIA_DIR);
     },
     filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${randomUUID()}${ext}`);
+      cb(null, `${randomUUID()}${extensionByMimetype.get(file.mimetype) ?? ""}`);
     }
   })
 });
@@ -298,7 +322,14 @@ function requireStreamManage(
   return requirePermission(req, res, Permissions.STREAM_MANAGE);
 }
 
-app.use("/media", express.static(MEDIA_DIR));
+app.use(
+  "/media",
+  express.static(MEDIA_DIR, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    }
+  })
+);
 
 app.get("/api/auth/status", (_req, res) => {
   res.json({ setup: countUsers() === 0 });
@@ -992,42 +1023,123 @@ app.delete("/api/twitch/disconnect", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/media", (_req, res) => {
+function getOrCreateOverlayToken(): string {
+  const existing = getSetting(OVERLAY_TOKEN_SETTING);
+  if (existing) {
+    return existing;
+  }
+
+  const token = randomUUID();
+  setSetting(OVERLAY_TOKEN_SETTING, token);
+  return token;
+}
+
+app.get("/api/overlay/token", (req, res) => {
+  if (!requireOwner(req, res)) {
+    return;
+  }
+
+  res.json({ token: getOrCreateOverlayToken() });
+});
+
+app.post("/api/overlay/token", (req, res) => {
+  if (!requireOwner(req, res)) {
+    return;
+  }
+
+  const token = randomUUID();
+  setSetting(OVERLAY_TOKEN_SETTING, token);
+
+  // Kick overlays holding the old token so a rotation actually revokes.
+  for (const client of io.sockets.sockets.values()) {
+    if ((client.data?.user as UserRow | undefined)?.id === OVERLAY_USER_ID) {
+      client.disconnect(true);
+    }
+  }
+
+  res.json({ token });
+});
+
+app.get("/api/media", (req, res) => {
+  if (!extractAuthUser(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   res.json(listMediaItems());
 });
 
-app.post("/api/media", upload.single("file"), (req, res) => {
-  const file = req.file;
-  if (!file) {
-    res.status(400).json({ error: "No file uploaded" });
+app.post("/api/media", (req, res) => {
+  const guard = requirePermission(req, res, Permissions.MEDIA_UPLOAD);
+  if (!guard) {
     return;
   }
 
-  if (!allowedMimetypes.has(file.mimetype)) {
-    fs.unlink(file.path, () => undefined);
-    res.status(415).json({ error: "Unsupported media type" });
-    return;
-  }
+  upload.single("file")(req, res, (error: unknown) => {
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === UNSUPPORTED_MEDIA_TYPE) {
+        res.status(415).json({ error: "Unsupported media type" });
+        return;
+      }
 
-  const item = {
-    id: randomUUID(),
-    filename: file.filename,
-    originalName: file.originalname,
-    mimetype: file.mimetype,
-    mediaType: getMediaType(file.mimetype),
-    size: file.size,
-    uploadedAt: new Date().toISOString()
-  };
+      const isTooLarge = code === "LIMIT_FILE_SIZE";
+      res.status(isTooLarge ? 413 : 400).json({
+        error: isTooLarge ? "File is too large" : "Upload failed"
+      });
+      return;
+    }
 
-  saveMediaItem(item);
-  res.status(201).json({
-    ...item,
-    url: `/media/${item.filename}`
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
+
+    const item = {
+      id: randomUUID(),
+      filename: file.filename,
+      originalName: file.originalname,
+      mimetype: file.mimetype,
+      mediaType: getMediaType(file.mimetype),
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: guard.user.id
+    };
+
+    saveMediaItem(item);
+    res.status(201).json({
+      ...item,
+      url: `/media/${item.filename}`
+    });
   });
 });
 
 app.delete("/api/media/:id", (req, res) => {
-  deleteMediaItem(req.params.id);
+  const user = extractAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const item = getMediaItem(req.params.id);
+  if (!item) {
+    res.status(404).json({ error: "Media not found" });
+    return;
+  }
+
+  const overrides = toPermissionOverrides(getUserPermissionOverrides(user.id));
+  const canDeleteAny = resolvePermission(user.role, Permissions.MEDIA_DELETE_ANY, overrides);
+  const canDeleteOwn =
+    item.uploadedBy === user.id
+    && resolvePermission(user.role, Permissions.MEDIA_DELETE_OWN, overrides);
+
+  if (!canDeleteAny && !canDeleteOwn) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  deleteMediaItem(item.id);
   res.status(200).json({ ok: true });
 });
 
@@ -1090,7 +1202,7 @@ function setWidgetProps(widgetId: string, props: Record<string, unknown>): void 
     ...props
   };
   saveState("canvas", canvasState);
-  io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+  io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
 }
 
 if (isProduction) {
@@ -1100,11 +1212,12 @@ if (isProduction) {
   app.use("/overlay", express.static(overlayBuildPath));
   app.use(express.static(dashboardBuildPath));
 
-  app.get("/overlay/*rest", (_req, res) => {
+  // Express 4 wildcard: "/*rest" only matches paths literally ending in "rest".
+  app.get("/overlay/*", (_req, res) => {
     res.sendFile(path.join(overlayBuildPath, "index.html"));
   });
 
-  app.get("/*rest", (req, res, next) => {
+  app.get("/*", (req, res, next) => {
     if (req.path.startsWith("/socket.io") || req.path.startsWith("/overlay")) {
       next();
       return;
@@ -1117,7 +1230,10 @@ if (isProduction) {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "*"
+    // Broadcasts are gated on the authed room, so this is defence in depth.
+    // Set CORS_ORIGIN (comma-separated) to lock the dashboard down further.
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true,
+    credentials: true
   }
 });
 
@@ -1226,6 +1342,19 @@ io.on("connection", (socket) => {
         sessionExpiresAt: null,
         createdAt: new Date().toISOString()
       };
+    } else if (token === getSetting(OVERLAY_TOKEN_SETTING)) {
+      // OBS browser sources cannot log in, so the overlay authenticates with a
+      // dedicated token. OVERLAY_ROLE has no entries in the permission table,
+      // so this socket can receive broadcasts but never change anything.
+      user = {
+        id: OVERLAY_USER_ID,
+        username: "overlay",
+        passwordHash: "",
+        role: OVERLAY_ROLE,
+        sessionToken: token,
+        sessionExpiresAt: null,
+        createdAt: new Date().toISOString()
+      };
     } else {
       user = getUserBySessionToken(token);
       if (!user || !user.sessionExpiresAt || Date.parse(user.sessionExpiresAt) <= Date.now()) {
@@ -1242,6 +1371,7 @@ io.on("connection", (socket) => {
 
     socket.data.user = user;
     socket.data.overrides = overrides;
+    socket.join(AUTHED_ROOM);
     socket.emit(SocketEvents.AUTH_SUCCESS, {
       user: buildUserResponse(user)
     });
@@ -1249,6 +1379,10 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.USER_JOIN, () => {
+    if (!socket.data?.user) {
+      return;
+    }
+
     socket.data.clientType = "dashboard";
   });
 
@@ -1275,7 +1409,7 @@ io.on("connection", (socket) => {
       createdBy: typeof creator === "string" ? creator : widget.createdBy
     });
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_UPDATE, (incomingWidget: Widget | WidgetUpdate) => {
@@ -1323,7 +1457,7 @@ io.on("connection", (socket) => {
     }
 
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_LOCK, (payload: { widgetId: string; locked: boolean }) => {
@@ -1343,7 +1477,7 @@ io.on("connection", (socket) => {
 
     widget.locked = payload.locked;
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_TRANSFORM, (data: WidgetTransform) => {
@@ -1352,7 +1486,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    socket.broadcast.emit(SocketEvents.WIDGET_TRANSFORM, data);
+    socket.to(AUTHED_ROOM).emit(SocketEvents.WIDGET_TRANSFORM, data);
   });
 
   socket.on(SocketEvents.WIDGET_REORDER, (payload: { widgetIds?: unknown }) => {
@@ -1381,7 +1515,7 @@ io.on("connection", (socket) => {
     activeScene.widgets = [...reordered, ...extras];
 
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.WIDGET_REMOVE, (payload: { id: string }) => {
@@ -1397,7 +1531,7 @@ io.on("connection", (socket) => {
 
     activeScene.widgets = activeScene.widgets.filter((widget) => widget.id !== payload.id);
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.SCENE_CHANGE, (payload: { sceneId: string }) => {
@@ -1413,7 +1547,7 @@ io.on("connection", (socket) => {
 
     canvasState.activeSceneId = payload.sceneId;
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.SCENE_CLEAR, (payload: { sceneId: string }) => {
@@ -1433,7 +1567,7 @@ io.on("connection", (socket) => {
 
     scene.widgets = [];
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
   });
 
   socket.on(SocketEvents.PLAY_SOUND, (data: SoundPlay) => {
@@ -1448,7 +1582,7 @@ io.on("connection", (socket) => {
     }
 
     const volume = Math.min(1, Math.max(0, Number.isFinite(data.volume) ? data.volume : 1));
-    io.emit(SocketEvents.PLAY_SOUND, { url: data.url, volume });
+    io.to(AUTHED_ROOM).emit(SocketEvents.PLAY_SOUND, { url: data.url, volume });
   });
 
   socket.on(SocketEvents.PRESET_SAVE, (payload: { name?: string }) => {
@@ -1486,7 +1620,7 @@ io.on("connection", (socket) => {
 
     activeScene.widgets = JSON.parse(JSON.stringify(preset.widgets)) as Widget[];
     saveState("canvas", canvasState);
-    io.emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
+    io.to(AUTHED_ROOM).emit(SocketEvents.CANVAS_UPDATE, canvasBroadcast());
     emitPresetListToDashboards();
   });
 
@@ -1506,20 +1640,33 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.PRESET_LIST, () => {
+    if (!can(socket, Permissions.SCENE_MANAGE)) {
+      denyPermission(socket, SocketEvents.PRESET_LIST, Permissions.SCENE_MANAGE);
+      return;
+    }
+
     socket.emit(SocketEvents.PRESET_LIST, listPresets());
   });
 });
 
-httpServer.listen(port, () => {
-  console.log(`server listening on port ${port}`);
-  void startChatbot(io, getCanvasState, setWidgetProps).catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[chatbot] Auto-start failed: ${message}`);
+export function start(listenPort: number = port): typeof httpServer {
+  return httpServer.listen(listenPort, () => {
+    console.log(`server listening on port ${listenPort}`);
+    void startChatbot(io, getCanvasState, setWidgetProps).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[chatbot] Auto-start failed: ${message}`);
+    });
+    void startEventSub(io, getCanvasState).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[eventsub] Auto-start failed: ${message}`);
+    });
   });
-  void startEventSub(io, getCanvasState).catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[eventsub] Auto-start failed: ${message}`);
-  });
-});
+}
 
-export { app };
+// Only self-start when run directly, so tests can import the app without
+// binding a port or dialling out to Twitch.
+if (process.argv[1] === __filename) {
+  start();
+}
+
+export { app, httpServer, io };

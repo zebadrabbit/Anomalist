@@ -6,60 +6,59 @@ on:
       - main
   workflow_dispatch:
 
+# Only the deploy job needs more than read access; it declares its own.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Never cancel a run that may be mid-publish: this deploys the live site.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Also runs in ci.yml before merge. Repeated here so the deploy gates on
+      # its own inputs rather than trusting a separate workflow's result.
+      - name: Check docs screenshots
+        run: bash scripts/check-screenshots.sh
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
-        run: npm install
-
-      - name: Validate screenshot assets
-        run: |
-          ls -1 docs/public/screenshots/*.png
-          uniq_hashes=$(sha256sum docs/public/screenshots/*.png | awk '{print $1}' | sort -u | wc -l)
-          if [ "$uniq_hashes" -lt 3 ]; then
-            echo "Screenshot set looks suspicious (too many duplicates)."
-            exit 1
-          fi
-
-          if file docs/public/screenshots/dashboard.png | grep -q '1 x 1'; then
-            echo "dashboard.png appears to be a 1x1 placeholder."
-            exit 1
-          fi
+        run: npm ci
 
       - name: Build docs
         run: npm run docs:build
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/.vitepress/dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -55,6 +55,8 @@
     raid: { ...DEFAULT_ALERT_CONFIG.raid }
   };
   let redirectUri = "";
+  let overlayUrl = "";
+  let rotatingOverlayToken = false;
 
   function getAuthHeaders(includeJson = false): HeadersInit {
     const headers: HeadersInit = {};
@@ -392,16 +394,89 @@
     }
   }
 
+  async function loadOverlayUrl(): Promise<void> {
+    try {
+      const response = await fetch("/api/overlay/token", { headers: getAuthHeaders() });
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as { token: string };
+      overlayUrl = `${window.location.origin}/overlay?token=${encodeURIComponent(payload.token)}`;
+    } catch {
+      overlayUrl = "";
+    }
+  }
+
+  async function rotateOverlayToken(): Promise<void> {
+    rotatingOverlayToken = true;
+    try {
+      const response = await fetch("/api/overlay/token", {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+      if (!response.ok) {
+        addToast("error", "Couldn't rotate the overlay URL.");
+        return;
+      }
+
+      const payload = (await response.json()) as { token: string };
+      overlayUrl = `${window.location.origin}/overlay?token=${encodeURIComponent(payload.token)}`;
+      addToast("success", "Overlay URL rotated. Update your OBS browser source.");
+    } finally {
+      rotatingOverlayToken = false;
+    }
+  }
+
+  async function copyOverlayUrl(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(overlayUrl);
+      addToast("success", "Overlay URL copied.");
+    } catch {
+      addToast("error", "Couldn't copy. Select the URL and copy it manually.");
+    }
+  }
+
   onMount(() => {
     redirectUri =
       (import.meta.env.VITE_TWITCH_REDIRECT_URI as string | undefined)
       ?? `${window.location.origin}/auth/twitch/callback`;
     void loadStatus();
     void loadSettings();
+    void loadOverlayUrl();
   });
 </script>
 
-<div class="mx-auto w-full max-w-2xl rounded-2xl border border-base-300 bg-base-200 p-6 shadow-sm">
+<div class="mx-auto w-full max-w-2xl space-y-6">
+{#if overlayUrl}
+<div class="rounded-2xl border border-base-300 bg-base-200 p-6 shadow-sm">
+  <h2 class="text-xl font-semibold">Overlay URL</h2>
+  <p class="mt-1 text-sm text-base-content/70">
+    Paste this into an OBS Browser Source. It carries a read-only token, so it can display
+    your overlay but never change it. Treat it as a secret - anyone with the link can watch
+    your overlay.
+  </p>
+
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <input class="input input-bordered min-w-0 flex-1 font-mono text-xs" readonly value={overlayUrl} />
+    <button type="button" class="btn btn-primary btn-sm" on:click={copyOverlayUrl}>Copy</button>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm"
+      disabled={rotatingOverlayToken}
+      on:click={rotateOverlayToken}
+    >
+      {rotatingOverlayToken ? "Rotating..." : "Rotate"}
+    </button>
+  </div>
+
+  <p class="mt-2 text-xs text-base-content/60">
+    Rotating immediately disconnects overlays using the old link.
+  </p>
+</div>
+{/if}
+
+<div class="rounded-2xl border border-base-300 bg-base-200 p-6 shadow-sm">
   <h2 class="text-xl font-semibold">Twitch Integration</h2>
 
   {#if loadingStatus}
@@ -593,4 +668,5 @@
       Duration is ignored for <span class="font-mono">Cut</span>. Range 100–2000ms.
     </div>
   {/if}
+</div>
 </div>
