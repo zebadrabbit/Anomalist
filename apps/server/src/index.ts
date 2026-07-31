@@ -457,6 +457,7 @@ app.post("/api/auth/logout", (req, res) => {
   }
 
   clearSessionToken(user.id);
+  disconnectRevokedSockets();
   res.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
   res.status(200).json({ ok: true });
 });
@@ -619,6 +620,7 @@ app.delete("/api/users/:id", (req, res) => {
   }
 
   deleteUser(user.id);
+  disconnectRevokedSockets();
   res.status(200).json({ ok: true });
 });
 
@@ -1282,14 +1284,77 @@ const io = new Server(httpServer, {
   }
 });
 
+/**
+ * Re-reads the account behind a socket instead of trusting what was true at
+ * JOIN. A dashboard or OBS tab stays open for a whole stream, so a demotion, a
+ * revoked permission or a sign-out has to reach the live socket rather than
+ * waiting for a reconnect that may never come. Returns null once the account or
+ * its session no longer stands.
+ */
+function currentSocketUser(socket: any): UserRow | null {
+  const joined = socket.data?.user as UserRow | undefined;
+  if (!joined) {
+    return null;
+  }
+
+  // Both of these are synthesised at JOIN and have no row to re-read. Looking
+  // them up would return null and silently strip every OBS source of its
+  // connection, so they pass through and are re-checked in can().
+  if (joined.id === OVERLAY_USER_ID || joined.id === OWNER_TOKEN_FALLBACK_USER_ID) {
+    return joined;
+  }
+
+  const current = getUserById(joined.id);
+  if (!current || !current.sessionToken || current.sessionToken !== joined.sessionToken) {
+    return null;
+  }
+
+  if (!current.sessionExpiresAt || Date.parse(current.sessionExpiresAt) <= Date.now()) {
+    return null;
+  }
+
+  return current;
+}
+
 function can(socket: any, permission: Permission): boolean {
-  const user = socket.data?.user as UserRow | undefined;
-  const overrides = (socket.data?.overrides as UserPermissionOverrideRow[] | undefined) ?? [];
+  const user = currentSocketUser(socket);
   if (!user) {
     return false;
   }
 
-  return resolvePermission(user.role, permission, toPermissionOverrides(overrides));
+  if (user.id === OVERLAY_USER_ID) {
+    return resolvePermission(OVERLAY_ROLE, permission, []);
+  }
+
+  // Honoured only while no accounts exist, matching the HTTP path — otherwise a
+  // socket opened during first-run setup would keep owner rights forever after.
+  if (user.id === OWNER_TOKEN_FALLBACK_USER_ID) {
+    return countUsers() === 0 && resolvePermission("owner", permission, []);
+  }
+
+  return resolvePermission(
+    user.role,
+    permission,
+    toPermissionOverrides(getUserPermissionOverrides(user.id))
+  );
+}
+
+/**
+ * Drops sockets whose account or session no longer stands. Permission checks
+ * alone only stop a revoked user acting — broadcasts are gated on room
+ * membership, so without this they keep watching the canvas and chat for as long
+ * as they leave the tab open, which is the half of "revoked" that matters when
+ * someone was removed for cause.
+ */
+function disconnectRevokedSockets(): void {
+  for (const socket of io.sockets.sockets.values()) {
+    if (!socket.data?.user || currentSocketUser(socket)) {
+      continue;
+    }
+
+    socket.emit(SocketEvents.AUTH_ERROR, "Session is no longer valid");
+    socket.disconnect(true);
+  }
 }
 
 function denyPermission(socket: any, eventName: string, permission: Permission): void {
@@ -1390,7 +1455,6 @@ io.on("connection", (socket) => {
 
     const totalUsers = countUsers();
     let user: UserRow | null = null;
-    let overrides: UserPermissionOverrideRow[] = [];
 
     if (totalUsers === 0 && hasConfiguredOwnerToken && token === configuredOwnerToken) {
       user = {
@@ -1425,13 +1489,12 @@ io.on("connection", (socket) => {
         socket.disconnect(true);
         return;
       }
-
-      overrides = getUserPermissionOverrides(user.id);
     }
 
     clearFailedJoins(ip);
+    // Identity only. Permissions are resolved per event from the database, so
+    // nothing here is allowed to look like a cached answer to "may they?".
     socket.data.user = user;
-    socket.data.overrides = overrides;
     socket.join(AUTHED_ROOM);
     socket.emit(SocketEvents.AUTH_SUCCESS, {
       user: buildUserResponse(user)
@@ -1440,7 +1503,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on(SocketEvents.USER_JOIN, () => {
-    if (!socket.data?.user) {
+    if (!currentSocketUser(socket)) {
       return;
     }
 
@@ -1453,7 +1516,9 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const role = (socket.data?.user as UserRow | undefined)?.role;
+    // Live role, not the JOIN snapshot: this guards the sandboxed iframe surface,
+    // so a demoted editor must lose it immediately.
+    const role = currentSocketUser(socket)?.role;
     if (widget.type === "custom-html" && role === "moderator") {
       denyPermission(socket, SocketEvents.WIDGET_ADD, Permissions.WIDGET_ADD);
       return;
@@ -1495,7 +1560,7 @@ io.on("connection", (socket) => {
     }
 
     const existingWidget = activeScene.widgets[widgetIndex];
-    const user = socket.data?.user as UserRow | undefined;
+    const user = currentSocketUser(socket);
 
     if (existingWidget.locked === true && touchesTransformFields(incomingWidget) && user?.role !== "owner") {
       denyPermission(socket, SocketEvents.WIDGET_UPDATE, Permissions.WIDGET_TRANSFORM);
