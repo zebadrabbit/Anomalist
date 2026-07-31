@@ -34,7 +34,20 @@ if (fs.existsSync(dbPath)) {
   ensureWritable(dbPath);
 }
 
-const db = new Database(dbPath);
+/**
+ * Exported so media.ts can share it. It used to open a second connection to the
+ * same file, which in the default rollback journal means a writer locks the
+ * whole database against the other connection — one connection removes the
+ * contention rather than tuning around it.
+ */
+export const db = new Database(dbPath);
+
+// WAL lets readers carry on during a write, and survives an unclean shutdown
+// better than the rollback journal — worth having when the process is a
+// container that gets stopped mid-stream. busy_timeout covers the rest: wait for
+// a lock rather than throwing SQLITE_BUSY at whoever asked.
+db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 5000");
 
 function initDb(): void {
   db.exec(`

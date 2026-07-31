@@ -26,6 +26,16 @@ test("creates the DB_PATH parent directory instead of crashing", async () => {
   assert.ok(fs.existsSync(target), "database file should exist after import");
 });
 
+test("runs SQLite in WAL mode", async () => {
+  // The server used to open two connections to the same file in the default
+  // rollback journal, where a writer blocks readers and the two can collide
+  // outright. WAL lets them overlap; the timeout covers the rest.
+  const { db } = await import("../src/db.js");
+
+  assert.equal(db.pragma("journal_mode", { simple: true }), "wal");
+  assert.ok(Number(db.pragma("busy_timeout", { simple: true })) > 0, "a busy timeout is set");
+});
+
 test("rejects a data directory it cannot write", { skip: process.getuid?.() === 0 && "root ignores mode bits" }, async () => {
   const { ensureWritable } = await import("../src/db.js");
   const readOnly = path.join(root, "read-only");

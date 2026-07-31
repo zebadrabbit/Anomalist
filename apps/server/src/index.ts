@@ -223,6 +223,18 @@ function getSocketIp(request: IncomingMessage): string {
   return proxyaddr(request, app.get("trust proxy fn")) || "unknown";
 }
 
+/**
+ * Settings live in one key/value table, so listing it handed the Twitch client
+ * secret and the overlay token to the dashboard, which asks for neither. Matched
+ * by suffix rather than an explicit list so a credential added later is hidden
+ * by default — the failure mode of a new name nobody remembered to add is a
+ * leaked secret, and the failure mode of a false match is a missing settings
+ * field somebody notices immediately.
+ */
+function isCredentialSetting(key: string): boolean {
+  return /(_secret|_token|_password)$/.test(key);
+}
+
 function buildUserResponse(user: UserRow) {
   return {
     id: user.id,
@@ -339,7 +351,10 @@ function requireOwner(req: express.Request, res: express.Response): UserRow | nu
   }
 
   if (user.role !== "owner") {
-    res.status(401).json({ error: "Owner role required" });
+    // 403, matching requirePermission a few lines up. 401 means "we do not know
+    // who you are" and invites the client to re-authenticate; this caller is
+    // authenticated and simply is not the owner, which is 403.
+    res.status(403).json({ error: "Owner role required" });
     return null;
   }
 
@@ -590,6 +605,13 @@ app.patch("/api/users/:id", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(nextPassword, 12);
     updateUserPassword(user.id, passwordHash);
+
+    // Changing a password is how you respond to an account being taken, so the
+    // session the taker is holding has to die with it — otherwise it stays valid
+    // for up to SESSION_HOURS. A role change deliberately does not do this:
+    // permissions already apply live, so signing someone out would be noise.
+    clearSessionToken(user.id);
+    disconnectRevokedSockets();
   }
 
   const updatedUser = getUserById(user.id);
@@ -711,6 +733,9 @@ app.get("/api/settings", (req, res) => {
   const settings = listSettings();
   const payload: Record<string, string> = {};
   for (const setting of settings) {
+    if (isCredentialSetting(setting.key)) {
+      continue;
+    }
     payload[setting.key] = setting.value;
   }
 

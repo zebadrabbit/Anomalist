@@ -1,9 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
-import { dbPath, ensureWritable } from "./db.js";
-
-const db = new Database(dbPath);
+import { db, ensureWritable } from "./db.js";
 
 export const MEDIA_DIR = process.env.MEDIA_DIR ?? path.join(process.cwd(), "media");
 

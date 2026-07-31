@@ -52,6 +52,7 @@ export default defineConfig({
           items: [
             { text: 'Roles', link: '/guide/roles' },
             { text: 'Managing Users', link: '/guide/users' },
+            { text: 'Security', link: '/guide/security' },
           ],
         },
       ],

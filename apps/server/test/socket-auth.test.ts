@@ -137,7 +137,8 @@ describe("overlay token", () => {
     const editor = createSession(server.db, "editor");
     const response = await fetchOverlayToken("GET", editor.token);
 
-    assert.equal(response.status, 401);
+    // 403, not 401: this editor is signed in, they just are not the owner.
+    assert.equal(response.status, 403);
   });
 
   test("returns a token an overlay can join with", async () => {

@@ -44,13 +44,28 @@ function resolveSoundLabel(sound: { label?: unknown; name?: unknown; url?: unkno
   return "";
 }
 
+/**
+ * Anyone in chat can fire !sound and every trigger plays audio over the live
+ * stream, so one viewer could hold the airhorn down for a whole broadcast. A
+ * cooldown rather than a moderator gate on purpose: viewer-triggered sounds are
+ * the point of the feature, and gating them on mod would quietly remove it.
+ *
+ * ponytail: one global cooldown, not per-user and not configurable. Per-user
+ * would still let ten viewers take turns; make it a setting if someone actually
+ * wants to tune it.
+ */
+export const SOUND_COOLDOWN_MS = 5000;
+
+let lastSoundPlayedAt = 0;
+
 export async function handleChatMessage(
   io: Server,
   getCanvas: () => CanvasState,
   setWidget: (widgetId: string, props: Record<string, unknown>) => void,
   userstate: tmi.ChatUserstate,
   message: string,
-  self: boolean
+  self: boolean,
+  now: number = Date.now()
 ): Promise<void> {
   if (self) {
     return;
@@ -100,6 +115,13 @@ export async function handleChatMessage(
     const perSoundVolume = typeof matchedSound.volume === "number" && Number.isFinite(matchedSound.volume)
       ? matchedSound.volume
       : 1;
+    // Checked here rather than at the top of the branch so a request that
+    // matched nothing does not start the clock and block a real one.
+    if (now - lastSoundPlayedAt < SOUND_COOLDOWN_MS) {
+      return;
+    }
+    lastSoundPlayedAt = now;
+
     const clampedVolume = Math.min(1, Math.max(0, perSoundVolume));
     io.to(AUTHED_ROOM).emit("sound:play", { url: matchedSound.url, volume: clampedVolume });
     return;
