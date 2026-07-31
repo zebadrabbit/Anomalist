@@ -1,0 +1,12 @@
+{
+  // tsconfig.json covers src and test so editors and `npm run typecheck` see the
+  // whole package. The build needs the opposite: emit, and only from src — tests
+  // are run through tsx and must never reach dist.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../server/dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

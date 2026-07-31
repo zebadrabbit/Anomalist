@@ -65,7 +65,7 @@ export function multipartFile(
   filename: string,
   contentType: string,
   content: Buffer | string
-): { body: Buffer; headers: Record<string, string> } {
+): { body: Uint8Array<ArrayBuffer>; headers: Record<string, string> } {
   const boundary = `----anomalist${randomUUID()}`;
   const head = Buffer.from(
     `--${boundary}\r\n`
@@ -73,10 +73,14 @@ export function multipartFile(
       + `Content-Type: ${contentType}\r\n\r\n`
   );
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
-  const body = Buffer.concat([head, Buffer.from(content), tail]);
+  const buffer = Buffer.concat([head, Buffer.from(content), tail]);
 
   return {
-    body,
+    // The parameter matters: bare `Uint8Array` means `Uint8Array<ArrayBufferLike>`,
+    // and fetch's BodyInit only accepts a non-shared buffer. Buffer.concat returns
+    // Buffer<ArrayBufferLike>, so it needs narrowing rather than a cast — which is
+    // what the old `Buffer` return annotation was quietly getting wrong.
+    body: new Uint8Array(buffer),
     headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` }
   };
 }
