@@ -26,8 +26,8 @@ Edit `.env` before starting:
 |---|---|---|
 | `PORT` | Port the server listens on | `3001` |
 | `OWNER_TOKEN` | Emergency backdoor token (set once, keep safe) | — |
-| `DB_PATH` | Where the SQLite database lives | `./anomalist.db` |
-| `MEDIA_DIR` | Where uploaded media is stored | `./media` |
+| `DB_PATH` | Where the SQLite database lives | `/app/data/anomalist.db` in Docker, `./anomalist.db` otherwise |
+| `MEDIA_DIR` | Where uploaded media is stored | `/app/media` in Docker, `./media` otherwise |
 | `MEDIA_MAX_BYTES` | Largest upload accepted | `104857600` (100 MB) |
 | `CORS_ORIGIN` | Comma-separated origins allowed to connect | all |
 
@@ -59,9 +59,34 @@ are disconnected immediately and you re-paste the new URL into OBS.
 
 ```bash
 git pull
-docker compose pull
+docker compose up -d --build
+```
+
+Anomalist is built from source rather than pulled from a registry, so
+`docker compose pull` has nothing to fetch — it reports `Skipped - No image to
+be pulled` and leaves you on the old build. `--build` is what actually updates.
+
+### One-time step when upgrading from a build before the container dropped root
+
+The container now runs as the unprivileged `node` user (uid 1000) instead of
+root. Docker volumes created by an older build are owned by root, so the new
+container cannot write to them. It refuses to start and tells you as much:
+
+```
+Error: /app/data is not writable by uid 1000.
+```
+
+Hand the volumes over once, then start normally:
+
+```bash
+docker compose down
+docker run --rm -v anomalist_data:/d alpine chown -R 1000:1000 /d
+docker run --rm -v anomalist_media:/d alpine chown -R 1000:1000 /d
 docker compose up -d
 ```
+
+Fresh installs need none of this — Docker seeds a new volume with the
+ownership already baked into the image.
 
 ## Next steps
 

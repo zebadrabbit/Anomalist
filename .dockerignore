@@ -1,0 +1,30 @@
+# The build context is the repo root (docker-compose.yml sets context: .) because
+# the Dockerfile COPYs every workspace manifest. Without this file that context is
+# 278 MB, 264 MB of it host node_modules — which "COPY . ." then layers on top of
+# the Alpine npm ci, replacing musl binaries like better_sqlite3.node with the
+# glibc ones built for the host.
+#
+# ponytail: mirrors .gitignore. Anything git ignores here is a secret, a database,
+# or a build output the builder stage regenerates from source. Note Docker does not
+# use gitignore semantics — a bare "node_modules" would match only the root one, so
+# every rule needs the **/ prefix.
+**/node_modules
+**/dist
+**/build
+**/.svelte-kit
+**/coverage
+**/.turbo
+
+# Secrets and live data. Neither reaches the production stage today (it never runs
+# "COPY . ."), but they have no business in the builder layers or the build cache.
+# .env.example is deliberately kept — it is documentation.
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+**/.git
+**/.github
+**/.DS_Store
+media
+data

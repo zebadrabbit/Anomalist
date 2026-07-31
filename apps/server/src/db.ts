@@ -1,8 +1,39 @@
+import fs from "node:fs";
+import path from "node:path";
 import Database from "better-sqlite3";
 import type { CanvasState, Scene } from "@anomalist/types";
 import type { Permission } from "./permissions.js";
 
-const dbPath = process.env.DB_PATH ?? "./anomalist.db";
+export const dbPath = process.env.DB_PATH ?? "./anomalist.db";
+
+/**
+ * Fails at startup rather than on the first write. A read-only data directory
+ * is the trap when upgrading to the non-root container: SQLite opens happily,
+ * then throws on the first INSERT, so the container reports healthy and serves
+ * reads while every write dies. Loud on boot beats silent in production.
+ */
+export function ensureWritable(target: string): void {
+  try {
+    fs.accessSync(target, fs.constants.W_OK);
+  } catch {
+    throw new Error(
+      `${target} is not writable by uid ${process.getuid?.() ?? "unknown"}. `
+        + "In Docker this usually means a named volume created by an older root-only "
+        + "image; fix it with: docker run --rm -v <volume>:/d alpine chown -R 1000:1000 /d"
+    );
+  }
+}
+
+// better-sqlite3 throws rather than creating the parent directory, so a DB_PATH
+// pointing anywhere but cwd ("/app/data/anomalist.db" in Docker) kills the
+// process on boot. media.ts imports dbPath from here so this runs before either
+// module opens the file.
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+ensureWritable(path.dirname(dbPath));
+if (fs.existsSync(dbPath)) {
+  ensureWritable(dbPath);
+}
+
 const db = new Database(dbPath);
 
 function initDb(): void {

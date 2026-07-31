@@ -1,13 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { dbPath, ensureWritable } from "./db.js";
 
-const dbPath = process.env.DB_PATH ?? "./anomalist.db";
 const db = new Database(dbPath);
 
 export const MEDIA_DIR = process.env.MEDIA_DIR ?? path.join(process.cwd(), "media");
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
+// Same upgrade trap as the database directory: a root-owned media volume would
+// otherwise let the server start and fail only when someone uploads.
+ensureWritable(MEDIA_DIR);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS media_items (

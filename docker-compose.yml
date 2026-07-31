@@ -15,6 +15,10 @@ services:
       - MEDIA_DIR=/app/media
       - OWNER_TOKEN=${OWNER_TOKEN:-change-me}
     restart: unless-stopped
+    # Without an init, node is PID 1, where the kernel drops signals that have no
+    # handler — so every "docker stop" ignored SIGTERM, waited 10s and SIGKILLed
+    # the process with the SQLite database open. tini forwards the signal instead.
+    init: true
 
 volumes:
   anomalist_data:
