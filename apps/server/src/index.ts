@@ -48,6 +48,7 @@ import {
   type Permission
 } from "./permissions.js";
 import { AUTHED_ROOM } from "./broadcast.js";
+import { clearFailedLogins, isLoginRateLimited, recordFailedLogin } from "./login-rate-limit.js";
 import { buildOAuthUrl, exchangeCode, getTwitchToken } from "./twitch.js";
 import { isChatbotConnected, startChatbot, stopChatbot } from "./chatbot.js";
 import {
@@ -59,6 +60,37 @@ import {
 } from "./eventsub.js";
 
 const app = express();
+
+// Express defaults this off, which makes req.ip the socket address — behind a
+// reverse proxy that is the proxy itself, so every user shares one rate-limit
+// bucket and ten failures from anybody lock out everybody. It stays opt-in
+// because the opposite default is worse: trusting X-Forwarded-For on a directly
+// reachable server lets anyone forge a fresh bucket per request and never be
+// limited at all. Set TRUST_PROXY=1 for a single reverse proxy.
+const trustProxy = process.env.TRUST_PROXY?.trim();
+if (trustProxy && trustProxy !== "false") {
+  if (trustProxy === "true") {
+    // Express reads this as "trust every hop", which takes the leftmost
+    // X-Forwarded-For entry — exactly the forged value an attacker controls.
+    throw new Error(
+      "TRUST_PROXY=true trusts every hop, so anyone can forge X-Forwarded-For and "
+        + "bypass the login rate limit. Set it to the number of proxies in front of "
+        + "the server (TRUST_PROXY=1) or to a comma-separated list of their addresses."
+    );
+  }
+
+  try {
+    app.set("trust proxy", /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  } catch (error) {
+    // proxy-addr throws a bare TypeError that names neither the variable nor the
+    // value, which is a miserable thing to debug at 3am on a stream night.
+    throw new Error(
+      `TRUST_PROXY="${trustProxy}" is neither a hop count nor a list of addresses: `
+        + (error as Error).message
+    );
+  }
+}
+
 const port = Number(process.env.PORT ?? 3001);
 const JOIN_EVENT = "JOIN";
 const OWNER_TOKEN_FALLBACK_USER_ID = "owner-token-fallback";
@@ -71,7 +103,6 @@ const configuredOwnerToken = process.env.OWNER_TOKEN;
 const hasConfiguredOwnerToken = !!configuredOwnerToken && configuredOwnerToken !== "change-me";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS ?? 24);
 const isProduction = process.env.NODE_ENV === "production";
-const failedLoginAttemptsByIp = new Map<string, number[]>();
 const SESSION_COOKIE_NAME = "sessionToken";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -172,24 +203,6 @@ function isValidPassword(password: string): boolean {
 
 function getRequesterIp(req: express.Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
-}
-
-function pruneFailedAttempts(ip: string): number[] {
-  const now = Date.now();
-  const windowStart = now - 15 * 60 * 1000;
-  const attempts = (failedLoginAttemptsByIp.get(ip) ?? []).filter((timestamp) => timestamp >= windowStart);
-  failedLoginAttemptsByIp.set(ip, attempts);
-  return attempts;
-}
-
-function pushFailedAttempt(ip: string): void {
-  const attempts = pruneFailedAttempts(ip);
-  attempts.push(Date.now());
-  failedLoginAttemptsByIp.set(ip, attempts);
-}
-
-function clearFailedAttempts(ip: string): void {
-  failedLoginAttemptsByIp.delete(ip);
 }
 
 function buildUserResponse(user: UserRow) {
@@ -368,25 +381,39 @@ app.post("/api/auth/setup", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   const ip = getRequesterIp(req);
-  const attempts = pruneFailedAttempts(ip);
-  if (attempts.length >= 10) {
-    res.status(429).json({ error: "Too many failed login attempts. Try again later." });
-    return;
-  }
-
   const { username, password } = req.body as { username?: unknown; password?: unknown };
   const normalizedUsername = typeof username === "string" ? username.trim() : "";
   const normalizedPassword = typeof password === "string" ? password : "";
 
-  const user = getUserByUsername(normalizedUsername);
-  const validPassword = user ? await bcrypt.compare(normalizedPassword, user.passwordHash) : false;
-  if (!user || !validPassword) {
-    pushFailedAttempt(ip);
+  // The account becomes half of a rate-limit key, so it must be bounded before
+  // it gets there. Every stored username passes this same check at creation, so
+  // rejecting here can never lock out a real account.
+  if (!isValidUsername(normalizedUsername)) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
 
-  clearFailedAttempts(ip);
+  // Counted per address *and* account, so signing into your own account cannot
+  // reset someone else's failure count from the same address.
+  if (isLoginRateLimited(ip, normalizedUsername)) {
+    res.status(429).json({ error: "Too many failed login attempts. Try again later." });
+    return;
+  }
+
+  // Counted before the await, not after the comparison fails. bcrypt.compare
+  // yields for ~300ms at cost 12, and while it did, every arriving request read
+  // a bucket that nobody had incremented yet — 300 concurrent guesses all passed
+  // a limit of 10. The check and the increment must share one synchronous tick.
+  recordFailedLogin(ip, normalizedUsername);
+
+  const user = getUserByUsername(normalizedUsername);
+  const validPassword = user ? await bcrypt.compare(normalizedPassword, user.passwordHash) : false;
+  if (!user || !validPassword) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  clearFailedLogins(ip, normalizedUsername);
 
   const token = randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000).toISOString();

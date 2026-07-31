@@ -30,6 +30,18 @@ Edit `.env` before starting:
 | `MEDIA_DIR` | Where uploaded media is stored | `/app/media` in Docker, `./media` otherwise |
 | `MEDIA_MAX_BYTES` | Largest upload accepted | `104857600` (100 MB) |
 | `CORS_ORIGIN` | Comma-separated origins allowed to connect | all |
+| `TRUST_PROXY` | Number of reverse proxies in front of the server | unset (direct) |
+
+::: warning Set `TRUST_PROXY` if you run behind nginx, Caddy or Cloudflare
+The login rate limiter counts failures per client address. Behind a proxy every
+request appears to come from the proxy, so ten failed logins from any one person
+lock out everybody. Setting `TRUST_PROXY=1` makes the server read the real client
+address from `X-Forwarded-For`.
+
+Leave it unset if the server is reachable directly. The header is trivially
+forged, so trusting it without a proxy in front lets an attacker mint a fresh
+bucket per request and bypass the limiter entirely.
+:::
 
 ::: tip
 `OWNER_TOKEN` is a last-resort access method. Once your owner account is created during first-run setup, you won't need it day-to-day.
