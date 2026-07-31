@@ -9,14 +9,33 @@ import {
   isLoginRateLimited,
   recordFailedLogin,
   trackedBucketCount,
-  resetLoginRateLimit
+  resetLoginRateLimitForTests
 } from "../src/login-rate-limit.js";
 
+// This file talks to the limiter directly rather than booting a server, so
+// nothing else has established the environment the reset helper insists on.
+process.env.NODE_ENV ??= "test";
+
 beforeEach(() => {
-  resetLoginRateLimit();
+  resetLoginRateLimitForTests();
 });
 
 describe("login rate limit", () => {
+  /**
+   * The helper wipes every bucket, so wiring it into a request handler would be
+   * a silent kill switch for the limiter. Enforced rather than left to the name.
+   */
+  test("the reset helper refuses to run outside a test environment", () => {
+    const original = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    try {
+      assert.throws(() => { resetLoginRateLimitForTests(); }, /NODE_ENV=test/);
+    } finally {
+      process.env.NODE_ENV = original;
+    }
+  });
+
   test("allows attempts up to the limit, then blocks", () => {
     for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
       assert.equal(isLoginRateLimited("10.0.0.1", "alice"), false, `attempt ${i} should be allowed`);

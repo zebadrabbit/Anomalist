@@ -192,7 +192,20 @@ export function trackedBucketCount(): number {
   return attemptsByBucket.size;
 }
 
-export function resetLoginRateLimit(): void {
+/**
+ * Test-only. Dropping every bucket on a running server would release every
+ * active lockout at once, so this refuses to run anywhere but NODE_ENV=test —
+ * the name alone is not a constraint, and a limiter with a reachable kill switch
+ * is not a limiter.
+ */
+export function resetLoginRateLimitForTests(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      "resetLoginRateLimitForTests would clear every active lockout and refuses to "
+        + `run outside NODE_ENV=test (saw ${process.env.NODE_ENV ?? "undefined"}).`
+    );
+  }
+
   attemptsByBucket.clear();
   lastSweep = 0;
 }

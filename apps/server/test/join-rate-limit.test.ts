@@ -3,7 +3,11 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { io as connect, type Socket } from "socket.io-client";
 import { SocketEvents } from "@anomalist/types";
 import { createSession, startTestServer, type TestServer } from "./support.js";
-import { MAX_FAILED_JOINS, resetLoginRateLimit } from "../src/login-rate-limit.js";
+import { MAX_FAILED_JOINS, resetLoginRateLimitForTests } from "../src/login-rate-limit.js";
+
+// startTestServer sets this too, but not until before() runs — beforeEach must
+// not depend on that ordering.
+process.env.NODE_ENV ??= "test";
 
 let server: TestServer;
 const openSockets: Socket[] = [];
@@ -15,7 +19,7 @@ before(async () => {
 // Every socket in this file connects from the same loopback address, so the
 // tests would otherwise inherit each other's exhausted budget.
 beforeEach(() => {
-  resetLoginRateLimit();
+  resetLoginRateLimitForTests();
 });
 
 after(async () => {
