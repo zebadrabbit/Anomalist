@@ -160,6 +160,35 @@ describe("login rate limit", () => {
   });
 
   /**
+   * Declining to record an attempt is the same as allowing an unlimited number
+   * of them: a bucket the limiter refuses to create never accumulates, so it
+   * answers "not limited" for that pair forever. An attacker who locks the head
+   * of the iteration order and then fills the table used to switch the limiter
+   * off for every address and account that did not already have a bucket —
+   * measured at 500 unimpeded guesses against a fresh pair.
+   */
+  test("stays enforced after the table saturates with locked buckets", () => {
+    // More than the eviction scan window, so the scan finds nothing droppable.
+    for (let a = 0; a < 60; a += 1) {
+      for (let i = 0; i < MAX_FAILED_LOGINS; i += 1) {
+        recordFailedLogin(`10.0.${a}.1`, `locked${a}`);
+      }
+    }
+    for (let n = 0; trackedBucketCount() < MAX_TRACKED_BUCKETS && n < 40_000; n += 1) {
+      recordFailedLogin(`10.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}`, `fill${n % 40}`);
+    }
+    assert.equal(trackedBucketCount(), MAX_TRACKED_BUCKETS, "precondition: table is full");
+
+    let guesses = 0;
+    while (guesses < 500 && !isLoginRateLimited("203.0.113.99", "theowner")) {
+      recordFailedLogin("203.0.113.99", "theowner");
+      guesses += 1;
+    }
+
+    assert.equal(guesses, MAX_FAILED_LOGINS, "a saturated table must not disable the limiter");
+  });
+
+  /**
    * lastSweep is a wall-clock stamp. A backward step (NTP correction, VM
    * snapshot restore) used to park it in the future, and every later comparison
    * went negative, so the sweep never ran again and stale buckets accumulated.

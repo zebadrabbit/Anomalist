@@ -33,10 +33,11 @@ Edit `.env` before starting:
 | `TRUST_PROXY` | Number of reverse proxies in front of the server | unset (direct) |
 
 ::: warning Set `TRUST_PROXY` if you run behind nginx, Caddy or Cloudflare
-The login rate limiter counts failures per client address. Behind a proxy every
-request appears to come from the proxy, so ten failed logins from any one person
-lock out everybody. Setting `TRUST_PROXY=1` makes the server read the real client
-address from `X-Forwarded-For`.
+Failed logins and failed overlay/dashboard socket connections are both counted
+per client address. Behind a proxy every request appears to come from the proxy,
+so ten failed logins from any one person lock out everybody. Setting
+`TRUST_PROXY=1` makes the server read the real client address from
+`X-Forwarded-For`.
 
 Leave it unset if the server is reachable directly. The header is trivially
 forged, so trusting it without a proxy in front lets an attacker mint a fresh

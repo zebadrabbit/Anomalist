@@ -4,7 +4,7 @@ import bcrypt from "bcrypt";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import path from "node:path";
 import { Server } from "socket.io";
 import multer from "multer";
@@ -48,7 +48,15 @@ import {
   type Permission
 } from "./permissions.js";
 import { AUTHED_ROOM } from "./broadcast.js";
-import { clearFailedLogins, isLoginRateLimited, recordFailedLogin } from "./login-rate-limit.js";
+import proxyaddr from "proxy-addr";
+import {
+  clearFailedJoins,
+  clearFailedLogins,
+  isJoinRateLimited,
+  isLoginRateLimited,
+  recordFailedJoin,
+  recordFailedLogin
+} from "./login-rate-limit.js";
 import { buildOAuthUrl, exchangeCode, getTwitchToken } from "./twitch.js";
 import { isChatbotConnected, startChatbot, stopChatbot } from "./chatbot.js";
 import {
@@ -203,6 +211,16 @@ function isValidPassword(password: string): boolean {
 
 function getRequesterIp(req: express.Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+/**
+ * socket.io does not run Express's middleware, so handshakes have no req.ip.
+ * Reusing the app's own compiled trust function keeps sockets and HTTP agreeing
+ * about who the client is — otherwise TRUST_PROXY would fix login while every
+ * socket still counted against the proxy's address.
+ */
+function getSocketIp(request: IncomingMessage): string {
+  return proxyaddr(request, app.get("trust proxy fn")) || "unknown";
 }
 
 function buildUserResponse(user: UserRow) {
@@ -1348,6 +1366,21 @@ io.on("connection", (socket) => {
   console.log("client connected");
 
   socket.on(JOIN_EVENT, (payload: { token?: string }) => {
+    const ip = getSocketIp(socket.request);
+
+    // Refusing to look at the token is the whole point: continuing to answer
+    // "valid or not" is exactly what a guesser needs, so the limit has to land
+    // before the comparison. A correct token is refused too while limited.
+    if (isJoinRateLimited(ip)) {
+      socket.emit(SocketEvents.AUTH_ERROR, "Too many failed attempts. Try again later.");
+      socket.disconnect(true);
+      return;
+    }
+
+    // Counted up front, cleared on success — the same ordering the login route
+    // needs, so a future await in this handler cannot reopen the gap.
+    recordFailedJoin(ip);
+
     const token = payload?.token;
     if (!token) {
       socket.emit(SocketEvents.AUTH_ERROR, "Invalid token");
@@ -1396,6 +1429,7 @@ io.on("connection", (socket) => {
       overrides = getUserPermissionOverrides(user.id);
     }
 
+    clearFailedJoins(ip);
     socket.data.user = user;
     socket.data.overrides = overrides;
     socket.join(AUTHED_ROOM);

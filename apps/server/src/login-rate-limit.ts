@@ -97,7 +97,53 @@ function evictOne(now: number): boolean {
     }
   }
 
+  // Nothing droppable in the scan window. Give up one lockout's remaining
+  // minutes rather than decline to count, because an uncounted attempt is an
+  // unlimited one: a bucket never created never accumulates, so the limiter
+  // answers "not limited" for that pair forever. An attacker who locked the head
+  // of the iteration order and filled the table could otherwise switch the
+  // limiter off for every address and account without an existing bucket.
+  //
+  // Failing closed here instead — treating a full table as "limited" — would be
+  // worse still: it locks out every user who does not already hold a bucket.
+  for (const [oldest] of attemptsByBucket) {
+    attemptsByBucket.delete(oldest);
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * Socket JOIN is the app's other credential check. It gets its own budget rather
+ * than sharing the login one, because OBS usually runs on the same machine as
+ * the dashboard: a rotated overlay token must not be able to burn the operator's
+ * own ability to sign in. Generous on purpose — the dashboard signs out on a
+ * rejected token and the overlay stops after one attempt (socket.io does not
+ * auto-reconnect once the server disconnects it), so a healthy deployment never
+ * approaches this.
+ */
+export const MAX_FAILED_JOINS = 20;
+
+/**
+ * "join" cannot collide with the account-keyed buckets: those are
+ * `address\0account`, and no address is the literal string "join".
+ */
+function joinKey(ip: string): string {
+  return `join\u0000${ip}`;
+}
+
+export function isJoinRateLimited(ip: string, now: number = Date.now()): boolean {
+  return atLimit(joinKey(ip), MAX_FAILED_JOINS, now);
+}
+
+export function recordFailedJoin(ip: string, now: number = Date.now()): void {
+  sweepExpired(now);
+  bump(joinKey(ip), now);
+}
+
+export function clearFailedJoins(ip: string): void {
+  attemptsByBucket.delete(joinKey(ip));
 }
 
 function atLimit(key: string, limit: number, now: number): boolean {
@@ -117,9 +163,10 @@ export function isLoginRateLimited(ip: string, username: string, now: number = D
 }
 
 function bump(key: string, now: number): void {
+  // evictOne only fails on an empty map, which cannot happen at the cap — so in
+  // practice this never declines to count. See the comment there for why that
+  // matters more than preserving any single lockout.
   if (attemptsByBucket.size >= MAX_TRACKED_BUCKETS && !attemptsByBucket.has(key) && !evictOne(now)) {
-    // Every candidate is an active lockout. Holding those matters more than
-    // tracking one more bucket, so drop this one rather than free an attacker.
     return;
   }
 
