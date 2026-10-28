@@ -7,7 +7,7 @@ Anomalist follows a practical, community-first approach inspired by OBS: keep ch
 1. Fork and clone the repository.
 2. Install dependencies with `npm install`.
 3. Run `npm run dev` from the repo root.
-4. Use `npm run typecheck` before opening a pull request.
+4. Run `npm run typecheck`, `npm run build` and `npm test` before opening a pull request. CI runs the same sequence; see [docs/dev/contributing.md](docs/dev/contributing.md) for the full setup.
 
 ## Adding a Widget
 
